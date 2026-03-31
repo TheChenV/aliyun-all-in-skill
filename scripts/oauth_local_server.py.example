@@ -1,0 +1,373 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+阿里云 OpenAPI MCP Server OAuth 本地认证脚本
+支持 PKCE (Proof Key for Code Exchange)
+使用 Python 标准库，无需额外依赖
+
+使用方法：
+1. 运行此脚本：python oauth_local_server.py
+2. 在浏览器中打开显示的授权 URL
+3. 完成授权后，Token 会自动显示
+"""
+
+import json
+import time
+import secrets
+import hashlib
+import base64
+import threading
+import webbrowser
+import urllib.request
+import urllib.parse
+import urllib.error
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlparse, parse_qs
+from typing import Optional, Dict
+import sys
+
+# ==================== 配置区域 ====================
+
+OAUTH_CONFIG = {
+    "app_name": "alibabacloud-api-mcp-server@app.1263926834388048.onaliyun.com",
+    "app_id": "YOUR_APP_ID_HERE",
+    "scopes": ["openid", "/internal/acs/openapi", "aliuid"],
+    "app_type": "native"
+}
+
+MCP_ENDPOINT = "YOUR_MCP_ENDPOINT_HERE"  # 从 https://api.aliyun.com/mcp 获取
+
+PORT = 3000  # 本地监听端口
+
+# ==================== 全局变量 ====================
+
+auth_complete = threading.Event()
+auth_result: Optional[Dict] = None
+
+
+# ==================== PKCE 工具函数 ====================
+
+def generate_code_verifier() -> str:
+    """
+    生成 PKCE code_verifier
+    长度为 43-128 的随机字符串，使用 URL 安全字符
+    """
+    # 生成 32 字节随机数据，base64url 编码后为 43 字符
+    random_bytes = secrets.token_bytes(32)
+    code_verifier = base64.urlsafe_b64encode(random_bytes).decode('utf-8').rstrip('=')
+    return code_verifier
+
+
+def generate_code_challenge(code_verifier: str) -> str:
+    """
+    从 code_verifier 生成 code_challenge
+    使用 S256 方法：SHA256(code_verifier) 的 base64url 编码
+    """
+    # 计算 SHA256 哈希
+    sha256_hash = hashlib.sha256(code_verifier.encode('utf-8')).digest()
+    # Base64url 编码，去掉填充字符
+    code_challenge = base64.urlsafe_b64encode(sha256_hash).decode('utf-8').rstrip('=')
+    return code_challenge
+
+
+# ==================== OAuth 回调处理器 ====================
+
+class OAuthCallbackHandler(BaseHTTPRequestHandler):
+    """OAuth 回调处理器"""
+    
+    def log_message(self, format, *args):
+        """静默日志"""
+        pass
+    
+    def do_GET(self):
+        """处理 GET 请求"""
+        global auth_result
+        
+        parsed = urlparse(self.path)
+        
+        if parsed.path == "/callback" or parsed.path == "/":
+            query = parse_qs(parsed.query)
+            
+            if "code" in query:
+                auth_result = {
+                    "code": query["code"][0],
+                    "state": query.get("state", [None])[0]
+                }
+                
+                self.send_response(200)
+                self.send_header("Content-type", "text/html; charset=utf-8")
+                self.end_headers()
+                
+                html = """
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>授权成功</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f5f5f5; }
+                        .container { background: white; padding: 40px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); max-width: 500px; margin: 0 auto; }
+                        h1 { color: #52c41a; }
+                        p { color: #666; }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <h1>✅ 授权成功！</h1>
+                        <p>正在换取 Token，请稍候...</p>
+                        <p>此窗口可以关闭。</p>
+                        <script>setTimeout(function() { window.close(); }, 5000);</script>
+                    </div>
+                </body>
+                </html>
+                """
+                self.wfile.write(html.encode('utf-8'))
+                auth_complete.set()
+                
+            elif "error" in query:
+                error = query["error"][0]
+                error_desc = query.get("error_description", ["Unknown error"])[0]
+                
+                auth_result = {
+                    "error": error,
+                    "error_description": error_desc
+                }
+                
+                self.send_response(400)
+                self.send_header("Content-type", "text/html; charset=utf-8")
+                self.end_headers()
+                
+                html = f"""
+                <!DOCTYPE html>
+                <html>
+                <head><title>授权失败</title></head>
+                <body style="font-family: Arial; text-align: center; padding-top: 100px;">
+                    <h1 style="color: red;">❌ 授权失败</h1>
+                    <p>错误: {error}</p>
+                    <p>描述: {error_desc}</p>
+                </body>
+                </html>
+                """
+                self.wfile.write(html.encode('utf-8'))
+                auth_complete.set()
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+
+def get_authorization_url(redirect_uri: str, state: str, code_challenge: str) -> str:
+    """生成 OAuth 授权 URL（包含 PKCE 参数）"""
+    base_url = "https://signin.aliyun.com/oauth2/v1/auth"
+    
+    params = {
+        "client_id": OAUTH_CONFIG["app_id"],
+        "response_type": "code",
+        "scope": " ".join(OAUTH_CONFIG["scopes"]),
+        "redirect_uri": redirect_uri,
+        "state": state,
+        # PKCE 参数
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+    }
+    
+    query = "&".join(f"{k}={v}" for k, v in params.items())
+    return f"{base_url}?{query}"
+
+
+def exchange_code_for_token(auth_code: str, redirect_uri: str, code_verifier: str) -> Dict:
+    """使用授权码换取 Token（包含 PKCE code_verifier）"""
+    
+    token_url = "https://oauth.aliyun.com/v1/token"
+    
+    data = {
+        "grant_type": "authorization_code",
+        "client_id": OAUTH_CONFIG["app_id"],
+        "code": auth_code,
+        "redirect_uri": redirect_uri,
+        # PKCE code_verifier
+        "code_verifier": code_verifier,
+    }
+    
+    print("\n正在换取 Token...")
+    print(f"   Token URL: {token_url}")
+    print(f"   Code Verifier: {code_verifier[:20]}...")
+    
+    try:
+        # 编码请求数据
+        encoded_data = urllib.parse.urlencode(data).encode('utf-8')
+        
+        # 创建请求
+        req = urllib.request.Request(
+            token_url,
+            data=encoded_data,
+            method='POST'
+        )
+        req.add_header('Content-Type', 'application/x-www-form-urlencoded')
+        
+        # 发送请求
+        with urllib.request.urlopen(req, timeout=30) as response:
+            result = response.read().decode('utf-8')
+            return json.loads(result)
+            
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8')
+        return {"error": f"HTTP {e.code}", "details": error_body}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def test_mcp_connection(access_token: str) -> Dict:
+    """测试 MCP 连通性（使用 urllib）"""
+    
+    print("\n测试 MCP 连通性...")
+    print(f"   Endpoint: {MCP_ENDPOINT}")
+    
+    try:
+        url = f"{MCP_ENDPOINT}/tools/list"
+        
+        req = urllib.request.Request(url, method='GET')
+        req.add_header('Authorization', f'Bearer {access_token}')
+        req.add_header('Content-Type', 'application/json')
+        
+        with urllib.request.urlopen(req, timeout=30) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            tools = result.get('tools', [])
+            return {
+                "success": True,
+                "tools_count": len(tools),
+                "tools": [t.get('name') for t in tools[:20]]
+            }
+            
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8')
+        return {
+            "success": False,
+            "status_code": e.code,
+            "error": error_body[:500]
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def main():
+    """主函数"""
+    print("=" * 70)
+    print("   阿里云 OpenAPI MCP Server OAuth 本地认证 (PKCE)")
+    print("=" * 70)
+    
+    print(f"\nOAuth 配置信息:")
+    print(f"   App Name: {OAUTH_CONFIG['app_name']}")
+    print(f"   App ID: {OAUTH_CONFIG['app_id']}")
+    print(f"   Scopes: {', '.join(OAUTH_CONFIG['scopes'])}")
+    
+    # 生成 PKCE 参数
+    code_verifier = generate_code_verifier()
+    code_challenge = generate_code_challenge(code_verifier)
+    
+    print(f"\nPKCE 参数:")
+    print(f"   Code Verifier: {code_verifier[:20]}... (已生成)")
+    print(f"   Code Challenge: {code_challenge[:20]}... (S256)")
+    
+    # 生成状态参数
+    state = secrets.token_urlsafe(16)
+    redirect_uri = f"http://127.0.0.1:{PORT}/callback"
+    
+    # 生成授权 URL
+    auth_url = get_authorization_url(redirect_uri, state, code_challenge)
+    
+    print(f"\n本地回调服务器:")
+    print(f"   监听端口: {PORT}")
+    print(f"   回调地址: {redirect_uri}")
+    
+    # 启动本地服务器
+    server = HTTPServer(('127.0.0.1', PORT), OAuthCallbackHandler)
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+    
+    print(f"\n本地服务器已启动")
+    print(f"\n请在浏览器中打开以下授权 URL:")
+    print(f"\n   {'-' * 66}")
+    print(f"   {auth_url}")
+    print(f"   {'-' * 66}")
+    
+    # 尝试自动打开浏览器
+    try:
+        webbrowser.open(auth_url)
+        print(f"\n已尝试自动打开浏览器...")
+    except:
+        pass
+    
+    print(f"\n等待授权回调...")
+    print(f"   (超时时间: 5 分钟)")
+    
+    # 等待授权完成
+    if auth_complete.wait(timeout=300):
+        server.shutdown()
+        
+        if auth_result and "code" in auth_result:
+            print(f"\n收到授权码!")
+            
+            # 换取 Token（传入 code_verifier）
+            token_data = exchange_code_for_token(
+                auth_result["code"], 
+                redirect_uri, 
+                code_verifier
+            )
+            
+            if "access_token" in token_data:
+                print(f"\n" + "=" * 70)
+                print("   授权成功！")
+                print("=" * 70)
+                
+                print(f"\nToken 信息:")
+                print(f"   Access Token: {token_data['access_token'][:80]}...")
+                print(f"   Token Type: {token_data.get('token_type', 'Bearer')}")
+                print(f"   Expires In: {token_data.get('expires_in', 'N/A')} 秒")
+                
+                if "refresh_token" in token_data:
+                    print(f"   Refresh Token: {token_data['refresh_token'][:40]}...")
+                
+                # 测试 MCP 连通性
+                mcp_result = test_mcp_connection(token_data['access_token'])
+                
+                if mcp_result.get("success"):
+                    print(f"\nMCP 连接测试成功!")
+                    print(f"   可用工具数量: {mcp_result.get('tools_count', 0)}")
+                    
+                    tools = mcp_result.get('tools', [])
+                    if tools:
+                        print(f"\n   前 20 个工具:")
+                        for i, tool in enumerate(tools[:20], 1):
+                            print(f"   {i:2d}. {tool}")
+                else:
+                    print(f"\nMCP 连接测试:")
+                    print(f"   {json.dumps(mcp_result, indent=2, ensure_ascii=False)}")
+                
+                # 保存 Token 到文件
+                token_file = "aliyun_token.json"
+                token_data["expires_at"] = time.time() + token_data.get("expires_in", 3600)
+                
+                with open(token_file, 'w', encoding='utf-8') as f:
+                    json.dump(token_data, f, indent=2, ensure_ascii=False)
+                
+                print(f"\nToken 已保存到: {token_file}")
+                
+                # 输出完整 Token 供用户复制
+                print(f"\n" + "=" * 70)
+                print("   请将以下 Token 信息复制到服务器端 config.json:")
+                print("=" * 70)
+                print(f"\n{json.dumps(token_data, indent=2, ensure_ascii=False)}")
+                print("\n" + "=" * 70)
+                
+            else:
+                print(f"\n获取 Token 失败:")
+                print(f"   {json.dumps(token_data, indent=2, ensure_ascii=False)}")
+        else:
+            print(f"\n授权失败:")
+            print(f"   {json.dumps(auth_result, indent=2, ensure_ascii=False)}")
+    else:
+        server.shutdown()
+        print(f"\n授权超时，请重新运行脚本")
+
+
+if __name__ == "__main__":
+    main()

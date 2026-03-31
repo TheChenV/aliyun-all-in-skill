@@ -1,0 +1,15 @@
+{
+  "mcp": {
+    "endpoint": "YOUR_MCP_ENDPOINT_HERE"
+  },
+  "oauth": {
+    "app_name": "alibabacloud-api-mcp-server@app.1263926834388048.onaliyun.com",
+    "app_id": "YOUR_APP_ID_HERE",
+    "scopes": ["openid", "/internal/acs/openapi", "aliuid"]
+  },
+  "token": {
+    "access_token": "YOUR_ACCESS_TOKEN_HERE",
+    "refresh_token": "YOUR_REFRESH_TOKEN_HERE",
+    "expires_at": 0
+  }
+}

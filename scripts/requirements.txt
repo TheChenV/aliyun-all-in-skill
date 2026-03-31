@@ -1,0 +1,7 @@
+# 阿里云 OpenAPI MCP 技能依赖
+
+# Excel 生成
+openpyxl>=3.1.2
+
+# OSS SDK（可选，仅 OSS 统计需要）
+oss2>=2.19.0

@@ -1,0 +1,34 @@
+# Python
+scripts/venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# 配置文件（包含敏感信息）
+config/config.json
+scripts/oauth_local_server.py
+
+# Token 文件
+aliyun_token.json
+*.token.json
+
+# Excel 临时文件
+*.xlsx
+*.xls
+
+# 临时文件
+*.tmp
+*.log
+*.bak
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
