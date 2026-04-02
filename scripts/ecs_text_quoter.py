@@ -199,7 +199,7 @@ def parse_text_instances(text: str, default_region: str = DEFAULT_REGION) -> Lis
             config.system_disk_type = dtype
         
         # 提取数据盘（支持多个）
-        data_disk_pattern = r'数据盘(\d*)\s*[：:]\s*(.+?)(?=\s*\||\s*数据盘\d*\s*[：:]|\s*公网带宽|\s*镜像|\s*地域|$)'
+        data_disk_pattern = r'数据盘 (\d*)\s*[：:]\s*([\s\S]+?)(?=\s*\||\s*数据盘\d*\s*[：:]|\s*公网带宽|\s*镜像|\s*地域|$)'
         data_disk_matches = list(re.finditer(data_disk_pattern, part, re.IGNORECASE))
         
         if data_disk_matches:
