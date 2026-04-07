@@ -183,7 +183,7 @@ def parse_text_instances(text: str, default_region: str = DEFAULT_REGION) -> Lis
             config.region = global_region
             config.region_name = global_region_name
         
-        # 提取系统盘
+        # 提取系统盘（支持冒号和无冒号格式）
         sys_disk_match = re.search(
             r'系统盘\s*[：:]\s*(.+?)(?=\s*\||\s*数据盘|\s*公网带宽|\s*镜像|\s*地域|$)',
             part, re.IGNORECASE
@@ -197,6 +197,11 @@ def parse_text_instances(text: str, default_region: str = DEFAULT_REGION) -> Lis
             # 提取类型
             dtype, dcategory, dpl = parse_disk_type(disk_text)
             config.system_disk_type = dtype
+        else:
+            # 备用匹配：系统盘 300G 格式（无冒号）
+            sys_disk_simple = re.search(r'系统盘\s+(\d+)\s*[GGBiB]*', part, re.IGNORECASE)
+            if sys_disk_simple:
+                config.system_disk_size = int(sys_disk_simple.group(1))
         
         # 提取数据盘（支持多个）
         data_disk_pattern = r'数据盘 (\d*)\s*[：:]\s*([\s\S]+?)(?=\s*\||\s*数据盘\d*\s*[：:]|\s*公网带宽|\s*镜像|\s*地域|$)'
@@ -218,10 +223,15 @@ def parse_text_instances(text: str, default_region: str = DEFAULT_REGION) -> Lis
                         'size': disk_size
                     })
         
-        # 提取带宽
+        # 提取带宽（支持 Mbps 和 "带宽N" 两种格式）
         bw_match = re.search(r'(\d+)\s*[Mm][Bb]ps', part, re.IGNORECASE)
         if bw_match:
             config.bandwidth = int(bw_match.group(1))
+        else:
+            # 备用匹配：带宽10M、带宽10Mbps 等格式
+            bw_match2 = re.search(r'带宽\s*(\d+)\s*[Mm]?', part, re.IGNORECASE)
+            if bw_match2:
+                config.bandwidth = int(bw_match2.group(1))
         
         # 提取带宽计费方式（用户明确指定优先）
         if '按流量' in part:
