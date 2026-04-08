@@ -116,6 +116,14 @@ def parse_text_instances(text: str, default_region: str = DEFAULT_REGION) -> Lis
     """
     解析文本配置，提取实例列表
     
+    支持两种格式：
+    1. 单行格式：1. 实例规格：ecs.c7.xlarge 系统盘：100GiB 带宽：10Mbps
+    2. 多行格式：
+       1. 华东1（杭州）
+       - 实例规格：ecs.c7.xlarge (4 vCPU 8 GiB)
+       - 系统盘：ESSD PL0 100GiB
+       - 带宽：按使用流量 10Mbps
+    
     Args:
         text: 用户输入的配置文本
         default_region: 默认地域
@@ -128,92 +136,84 @@ def parse_text_instances(text: str, default_region: str = DEFAULT_REGION) -> Lis
     # 提取全局地域（如果有的话）
     global_region, global_region_name = extract_region(text)
     
-    # 按序号分割（1. 2. ... 15. 等）- 匹配行首的完整序号
-    parts = re.split(r'(?=^\d+\.\s*实例规格)', text, flags=re.MULTILINE)
+    # 检测是否是多行格式（序号后跟地域名）
+    # 多行格式特征：^\d+\.\s*[^\n]+\n\s*-\s*实例规格 或 Markdown 格式 **数字. 地域**
+    multiline_pattern = r'^(\*\*)?\d+\.\s*[\u4e00-\u9fa5\(\）\(\)]+.*?(\*\*)?\n\s*[-－—]\s*实例规格'
+    is_multiline = bool(re.search(multiline_pattern, text, re.MULTILINE | re.IGNORECASE))
     
-    for part in parts:
-        if not part.strip() or '实例规格' not in part:
-            continue
+    if is_multiline:
+        # 多行格式解析
+        # 按 "数字. " 或 "**数字. **" 开头分割（保留分隔符）
+        parts = re.split(r'(?=^(?:\*\*)?\d+\.\s)', text, flags=re.MULTILINE)
         
-        config = TextInstanceConfig()
-        
-        # 提取序号作为名称 - 匹配行首的完整数字
-        num_match = re.match(r'^(\d+)\.\s*实例规格', part.strip())
-        if num_match:
-            config.name = f"实例{num_match.group(1)}"
-        else:
-            config.name = f"实例{len(instances) + 1}"
-        
-        # 提取实例规格代码（ecs.xxx.xxx 格式）
-        spec_match = re.search(r'(ecs\.[a-z0-9\-]+\.[a-z0-9]+)', part, re.IGNORECASE)
-        if spec_match:
-            config.spec = spec_match.group(1).lower()
-            config.raw_spec_input = config.spec
-        
-        # 提取 vCPU 和内存
-        cpu_mem_patterns = [
-            r'(\d+)\s*vCPU\s*(\d+)\s*GiB',
-            r'(\d+)\s*核\s*(\d+)\s*[GGBiB]*',
-            r'(\d+)\s*[核 v]*CPU\s*(\d+)\s*[GGBiB]*',
-        ]
-        for pattern in cpu_mem_patterns:
-            match = re.search(pattern, part, re.IGNORECASE)
-            if match:
-                config.vcpu = int(match.group(1))
-                config.memory = int(match.group(2))
-                break
-        
-        # 提取规格族关键词（用于场景2）
-        # 规格族格式：字母+数字+可选后缀，如 g6, c7, r7, u1, u2i, g9a 等
-        # 支持：g7规格、g7系列、g7 等格式
-        if not config.spec:
-            # 先尝试匹配 "g7规格"、"g7系列"、"c7系列" 等格式
-            series_name_match = re.search(r'(u\d+i?|g\d+i?a?|c\d+i?a?|r\d+i?a?)(?:规格|系列)?', part, re.IGNORECASE)
-            if series_name_match:
-                config.raw_series_input = series_name_match.group(1).lower()
-        
-        # 提取地域（每个实例可以有独立地域）
-        instance_region, instance_region_name = extract_region(part)
-        if instance_region != DEFAULT_REGION:
-            # 该实例有独立地域
+        for part in parts:
+            part = part.strip()
+            if not part or '实例规格' not in part:
+                continue
+            
+            config = TextInstanceConfig()
+            
+            # 提取序号（支持 Markdown 格式）
+            num_match = re.match(r'^\*\*(\d+)\.\s', part) or re.match(r'^(\d+)\.\s', part)
+            if num_match:
+                config.name = f"实例{num_match.group(1)}"
+            else:
+                config.name = f"实例{len(instances) + 1}"
+            
+            # 提取地域（从第一行）
+            first_line = part.split('\n')[0] if '\n' in part else part
+            instance_region, instance_region_name = extract_region(first_line)
             config.region = instance_region
             config.region_name = instance_region_name
-        else:
-            # 使用全局地域
-            config.region = global_region
-            config.region_name = global_region_name
-        
-        # 提取系统盘（支持冒号和无冒号格式）
-        sys_disk_match = re.search(
-            r'系统盘\s*[：:]\s*(.+?)(?=\s*\||\s*数据盘|\s*公网带宽|\s*镜像|\s*地域|$)',
-            part, re.IGNORECASE
-        )
-        if sys_disk_match:
-            disk_text = sys_disk_match.group(1).strip()
-            # 提取大小
-            size_match = re.search(r'(\d+)\s*GiB', disk_text, re.IGNORECASE)
-            if size_match:
-                config.system_disk_size = int(size_match.group(1))
-            # 提取类型
-            dtype, dcategory, dpl = parse_disk_type(disk_text)
-            config.system_disk_type = dtype
-        else:
-            # 备用匹配：系统盘 300G 格式（无冒号）
-            sys_disk_simple = re.search(r'系统盘\s+(\d+)\s*[GGBiB]*', part, re.IGNORECASE)
-            if sys_disk_simple:
-                config.system_disk_size = int(sys_disk_simple.group(1))
-        
-        # 提取数据盘（支持多个）
-        data_disk_pattern = r'数据盘 (\d*)\s*[：:]\s*([\s\S]+?)(?=\s*\||\s*数据盘\d*\s*[：:]|\s*公网带宽|\s*镜像|\s*地域|$)'
-        data_disk_matches = list(re.finditer(data_disk_pattern, part, re.IGNORECASE))
-        
-        if data_disk_matches:
-            for dm in data_disk_matches:
-                disk_text = dm.group(2).strip()
-                # 提取大小
+            
+            # 提取实例规格代码（ecs.xxx.xxx 格式）
+            spec_match = re.search(r'(ecs\.[a-z0-9\-]+\.[a-z0-9]+)', part, re.IGNORECASE)
+            if spec_match:
+                config.spec = spec_match.group(1).lower()
+                config.raw_spec_input = config.spec
+            
+            # 提取 vCPU 和内存
+            cpu_mem_patterns = [
+                r'\((\d+)\s*vCPU\s*(\d+)\s*GiB\)',
+                r'(\d+)\s*vCPU\s*(\d+)\s*GiB',
+                r'(\d+)\s*核\s*(\d+)\s*[GGBiB]*',
+                r'(\d+)\s*[核 v]*CPU\s*(\d+)\s*[GGBiB]*',
+            ]
+            for pattern in cpu_mem_patterns:
+                match = re.search(pattern, part, re.IGNORECASE)
+                if match:
+                    config.vcpu = int(match.group(1))
+                    config.memory = int(match.group(2))
+                    break
+            
+            # 提取规格族关键词（用于场景2）
+            if not config.spec:
+                # 尝试匹配 "计算型 c9i"、"通用型 g9i" 等格式
+                series_name_match = re.search(r'(?:计算型|通用型|内存型)\s*([a-z]\d+[a-z]?)', part, re.IGNORECASE)
+                if series_name_match:
+                    config.raw_series_input = series_name_match.group(1).lower()
+                else:
+                    # 尝试匹配 "c9i系列"、"g9i系列" 等格式
+                    series_name_match = re.search(r'(u\d+i?|g\d+i?a?|c\d+i?a?|r\d+i?a?|e-c\d+m\d+)(?:规格|系列)?', part, re.IGNORECASE)
+                    if series_name_match:
+                        config.raw_series_input = series_name_match.group(1).lower()
+            
+            # 提取系统盘
+            sys_disk_match = re.search(r'系统盘\s*[：:]\s*(.+?)(?=\n|\s*[-－—]|\s*数据盘|\s*公网带宽|\s*带宽|$)', part, re.IGNORECASE)
+            if sys_disk_match:
+                disk_text = sys_disk_match.group(1).strip()
+                size_match = re.search(r'(\d+)\s*GiB', disk_text, re.IGNORECASE)
+                if size_match:
+                    config.system_disk_size = int(size_match.group(1))
+                dtype, dcategory, dpl = parse_disk_type(disk_text)
+                config.system_disk_type = dtype
+            
+            # 提取数据盘
+            data_disk_match = re.search(r'数据盘\s*[：:]\s*(.+?)(?=\n|\s*[-－—]|\s*公网带宽|\s*带宽|$)', part, re.IGNORECASE)
+            if data_disk_match:
+                disk_text = data_disk_match.group(1).strip()
                 size_match = re.search(r'(\d+)\s*GiB', disk_text, re.IGNORECASE)
                 disk_size = int(size_match.group(1)) if size_match else 0
-                # 提取类型
                 dtype, dcategory, dpl = parse_disk_type(disk_text)
                 if disk_size > 0:
                     config.data_disks.append({
@@ -222,30 +222,144 @@ def parse_text_instances(text: str, default_region: str = DEFAULT_REGION) -> Lis
                         'pl': dpl,
                         'size': disk_size
                     })
-        
-        # 提取带宽（支持 Mbps 和 "带宽N" 两种格式）
-        bw_match = re.search(r'(\d+)\s*[Mm][Bb]ps', part, re.IGNORECASE)
-        if bw_match:
-            config.bandwidth = int(bw_match.group(1))
-        else:
-            # 备用匹配：带宽10M、带宽10Mbps 等格式
-            bw_match2 = re.search(r'带宽\s*(\d+)\s*[Mm]?', part, re.IGNORECASE)
-            if bw_match2:
-                config.bandwidth = int(bw_match2.group(1))
-        
-        # 提取带宽计费方式（用户明确指定优先）
-        if '按流量' in part:
-            config.bandwidth_charge_type = "PayByTraffic"
-        elif '按固定带宽' in part or '按带宽' in part:
-            config.bandwidth_charge_type = "PayByBandwidth"
-        else:
-            # 用户未指定，根据带宽大小判断
-            if config.bandwidth > 20:
+            
+            # 提取带宽
+            bw_match = re.search(r'(\d+)\s*[Mm][Bb]ps', part, re.IGNORECASE)
+            if bw_match:
+                config.bandwidth = int(bw_match.group(1))
+            
+            # 提取带宽计费方式
+            if '按流量' in part or '按使用流量' in part:
                 config.bandwidth_charge_type = "PayByTraffic"
-            else:
+            elif '按固定带宽' in part or '按带宽' in part:
                 config.bandwidth_charge_type = "PayByBandwidth"
+            else:
+                if config.bandwidth > 20:
+                    config.bandwidth_charge_type = "PayByTraffic"
+                else:
+                    config.bandwidth_charge_type = "PayByBandwidth"
+            
+            instances.append(config)
+    else:
+        # 单行格式解析（原有逻辑）
+        # 按序号分割（1. 2. ... 15. 等）- 匹配行首的完整序号
+        parts = re.split(r'(?=^\d+\.\s*实例规格)', text, flags=re.MULTILINE)
         
-        instances.append(config)
+        for part in parts:
+            if not part.strip() or '实例规格' not in part:
+                continue
+            
+            config = TextInstanceConfig()
+            
+            # 提取序号作为名称 - 匹配行首的完整数字
+            num_match = re.match(r'^(\d+)\.\s*实例规格', part.strip())
+            if num_match:
+                config.name = f"实例{num_match.group(1)}"
+            else:
+                config.name = f"实例{len(instances) + 1}"
+            
+            # 提取实例规格代码（ecs.xxx.xxx 格式）
+            spec_match = re.search(r'(ecs\.[a-z0-9\-]+\.[a-z0-9]+)', part, re.IGNORECASE)
+            if spec_match:
+                config.spec = spec_match.group(1).lower()
+                config.raw_spec_input = config.spec
+            
+            # 提取 vCPU 和内存
+            cpu_mem_patterns = [
+                r'(\d+)\s*vCPU\s*(\d+)\s*GiB',
+                r'(\d+)\s*核\s*(\d+)\s*[GGBiB]*',
+                r'(\d+)\s*[核 v]*CPU\s*(\d+)\s*[GGBiB]*',
+            ]
+            for pattern in cpu_mem_patterns:
+                match = re.search(pattern, part, re.IGNORECASE)
+                if match:
+                    config.vcpu = int(match.group(1))
+                    config.memory = int(match.group(2))
+                    break
+            
+            # 提取规格族关键词（用于场景2）
+            # 规格族格式：字母+数字+可选后缀，如 g6, c7, r7, u1, u2i, g9a 等
+            # 支持：g7规格、g7系列、g7 等格式
+            if not config.spec:
+                # 先尝试匹配 "g7规格"、"g7系列"、"c7系列" 等格式
+                series_name_match = re.search(r'(u\d+i?|g\d+i?a?|c\d+i?a?|r\d+i?a?)(?:规格|系列)?', part, re.IGNORECASE)
+                if series_name_match:
+                    config.raw_series_input = series_name_match.group(1).lower()
+            
+            # 提取地域（每个实例可以有独立地域）
+            instance_region, instance_region_name = extract_region(part)
+            if instance_region != DEFAULT_REGION:
+                # 该实例有独立地域
+                config.region = instance_region
+                config.region_name = instance_region_name
+            else:
+                # 使用全局地域
+                config.region = global_region
+                config.region_name = global_region_name
+            
+            # 提取系统盘（支持冒号和无冒号格式）
+            sys_disk_match = re.search(
+                r'系统盘\s*[：:]\s*(.+?)(?=\s*\||\s*数据盘|\s*公网带宽|\s*镜像|\s*地域|$)',
+                part, re.IGNORECASE
+            )
+            if sys_disk_match:
+                disk_text = sys_disk_match.group(1).strip()
+                # 提取大小
+                size_match = re.search(r'(\d+)\s*GiB', disk_text, re.IGNORECASE)
+                if size_match:
+                    config.system_disk_size = int(size_match.group(1))
+                # 提取类型
+                dtype, dcategory, dpl = parse_disk_type(disk_text)
+                config.system_disk_type = dtype
+            else:
+                # 备用匹配：系统盘 300G 格式（无冒号）
+                sys_disk_simple = re.search(r'系统盘\s+(\d+)\s*[GGBiB]*', part, re.IGNORECASE)
+                if sys_disk_simple:
+                    config.system_disk_size = int(sys_disk_simple.group(1))
+            
+            # 提取数据盘（支持多个）
+            data_disk_pattern = r'数据盘 (\d*)\s*[：:]\s*([\s\S]+?)(?=\s*\||\s*数据盘\d*\s*[：:]|\s*公网带宽|\s*镜像|\s*地域|$)'
+            data_disk_matches = list(re.finditer(data_disk_pattern, part, re.IGNORECASE))
+            
+            if data_disk_matches:
+                for dm in data_disk_matches:
+                    disk_text = dm.group(2).strip()
+                    # 提取大小
+                    size_match = re.search(r'(\d+)\s*GiB', disk_text, re.IGNORECASE)
+                    disk_size = int(size_match.group(1)) if size_match else 0
+                    # 提取类型
+                    dtype, dcategory, dpl = parse_disk_type(disk_text)
+                    if disk_size > 0:
+                        config.data_disks.append({
+                            'type': dtype,
+                            'category': dcategory,
+                            'pl': dpl,
+                            'size': disk_size
+                        })
+            
+            # 提取带宽（支持 Mbps 和 "带宽N" 两种格式）
+            bw_match = re.search(r'(\d+)\s*[Mm][Bb]ps', part, re.IGNORECASE)
+            if bw_match:
+                config.bandwidth = int(bw_match.group(1))
+            else:
+                # 备用匹配：带宽10M、带宽10Mbps 等格式
+                bw_match2 = re.search(r'带宽\s*(\d+)\s*[Mm]?', part, re.IGNORECASE)
+                if bw_match2:
+                    config.bandwidth = int(bw_match2.group(1))
+            
+            # 提取带宽计费方式（用户明确指定优先）
+            if '按流量' in part:
+                config.bandwidth_charge_type = "PayByTraffic"
+            elif '按固定带宽' in part or '按带宽' in part:
+                config.bandwidth_charge_type = "PayByBandwidth"
+            else:
+                # 用户未指定，根据带宽大小判断
+                if config.bandwidth > 20:
+                    config.bandwidth_charge_type = "PayByTraffic"
+                else:
+                    config.bandwidth_charge_type = "PayByBandwidth"
+            
+            instances.append(config)
     
     return instances
 
