@@ -49,6 +49,7 @@ venv/bin/python3 scripts/oss_quoter_auto.py <AK> <SK> -t <用户open_id>
 | 变量 | 说明 |
 |------|------|
 | `FEISHU_TARGET` | 目标用户 open_id（与 --target 二选一） |
+| `FEISHU_ACCOUNT` | 飞书账号名称（覆盖 config.json 中的 feishu_account） |
 
 ## 规格验证规则
 
@@ -120,9 +121,12 @@ aliyun-all-in-skill/
     "access_token": "...",
     "refresh_token": "...",
     "expires_at": 1775045890
-  }
+  },
+  "feishu_account": "feishu-yunbao"
 }
 ```
+
+`feishu_account` 字段（可选）：指定发送报价单时使用的飞书账号名称。如果不配置，脚本将使用 OpenClaw 默认飞书账号。支持通过 `FEISHU_ACCOUNT` 环境变量覆盖。
 
 首次使用需要 OAuth 授权。
 

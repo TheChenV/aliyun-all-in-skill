@@ -60,15 +60,31 @@ def send_via_openclaw(file_path, message, target=None):
     if not target:
         raise ValueError("未指定目标用户 open_id，请通过 --target 参数或 FEISHU_TARGET 环境变量传入")
     
+    # 获取 feishu account：优先环境变量，其次 config.json，最后不传（用默认账号）
+    feishu_account = os.environ.get("FEISHU_ACCOUNT")
+    if not feishu_account:
+        try:
+            config_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config")
+            config_path = os.path.join(config_dir, "config.json")
+            if os.path.exists(config_path):
+                with open(config_path) as f:
+                    config = json.load(f)
+                feishu_account = config.get("feishu_account")
+        except Exception:
+            pass
+    
     # 构建命令
     cmd = [
         "openclaw", "message", "send",
         "--channel", "feishu",
-        "--account", "yunbao",
         "--target", target,
         "--message", message,
         "--media", file_path
     ]
+    if feishu_account:
+        idx = cmd.index("--target")
+        cmd.insert(idx, "--account")
+        cmd.insert(idx + 1, feishu_account)
     
     print(f"发送文件：{file_path}")
     print(f"消息：{message}")

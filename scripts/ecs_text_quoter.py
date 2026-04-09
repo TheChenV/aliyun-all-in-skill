@@ -561,16 +561,36 @@ def quote_text_instances(
     return file_path
 
 
+def get_feishu_account() -> str:
+    """获取飞书账号名称：优先环境变量，其次 config.json"""
+    account = os.environ.get("FEISHU_ACCOUNT")
+    if not account:
+        try:
+            config_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "config")
+            config_path = os.path.abspath(os.path.join(config_dir, "config.json"))
+            if os.path.exists(config_path):
+                with open(config_path) as f:
+                    config = json.load(f)
+                account = config.get("feishu_account")
+        except Exception:
+            pass
+    return account
+
+
 def send_file(file_path: str, message: str, target: str) -> bool:
     """发送文件到飞书"""
     cmd = [
         "openclaw", "message", "send",
         "--channel", "feishu",
-        "--account", "yunbao",
         "--target", target,
         "--message", message,
         "--media", file_path
     ]
+    account = get_feishu_account()
+    if account:
+        idx = cmd.index("--target")
+        cmd.insert(idx, "--account")
+        cmd.insert(idx + 1, account)
     
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     return "✅ Sent via Feishu" in result.stdout or "✅ Sent via Feishu" in result.stderr

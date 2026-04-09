@@ -37,32 +37,47 @@ def get_latest_excel():
 
 def send_via_openclaw(file_path, message, target):
     """通过 openclaw message send 发送文件"""
+    import json
+
     # 检查文件是否在允许的目录
     if not file_path.startswith(ALLOWED_MEDIA_DIR):
-        # 需要复制到允许的目录
         import shutil
         safe_path = os.path.join(ALLOWED_MEDIA_DIR, os.path.basename(file_path))
         shutil.copy2(file_path, safe_path)
         file_path = safe_path
         print(f"文件已复制到允许目录：{file_path}")
-    
+
+    # 获取 feishu account：优先环境变量，其次 config.json
+    feishu_account = os.environ.get("FEISHU_ACCOUNT")
+    if not feishu_account:
+        try:
+            config_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "config")
+            config_path = os.path.abspath(os.path.join(config_dir, "config.json"))
+            if os.path.exists(config_path):
+                with open(config_path) as f:
+                    config = json.load(f)
+                feishu_account = config.get("feishu_account")
+        except Exception:
+            pass
+
     # 构建命令
     cmd = [
         "openclaw", "message", "send",
         "--channel", "feishu",
-        "--account", "yunbao",
         "--target", target,
         "--message", message,
         "--media", file_path
     ]
-    
+    if feishu_account:
+        idx = cmd.index("--target")
+        cmd.insert(idx, "--account")
+        cmd.insert(idx + 1, feishu_account)
+
     print(f"发送文件：{file_path}")
     print(f"消息：{message}")
-    
-    # 执行命令
+
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-    
-    # 检查是否发送成功
+
     if "✅ Sent via Feishu" in result.stdout or "✅ Sent via Feishu" in result.stderr:
         print("✅ 文件发送成功")
         return True
