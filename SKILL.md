@@ -22,13 +22,19 @@ description: 阿里云资源报价与统计工具。支持 ECS 报价查询和 O
 venv/bin/python3 scripts/ecs_csv_quoter_auto.py /path/to/file.csv -t <用户open_id>
 ```
 
-#### 场景二：文本配置（先确认再报价）
+#### 场景二：文本配置（预处理后直接报价）
 
-其他所有形式（文本描述、非标准文件）先分析统计，确认后报价：
+其他所有形式（文本描述、非标准文件）执行以下流程：
+
+1. **预处理**：将用户自然语言描述解析为标准配置格式，提取每项实例的 CPU、内存、系统盘、数据盘、带宽等参数
+2. **标准化输出**：将配置转为脚本可识别的标准格式，如 `实例规格：8核64G 系统盘：50GiB 数据盘：1000GiB 带宽：5Mbps`
+3. **直接报价**：无需二次确认，将标准化配置传入脚本执行
 
 ```bash
-venv/bin/python3 scripts/ecs_text_quoter.py '配置内容' --region cn-hangzhou -t <用户open_id>
+venv/bin/python3 scripts/ecs_text_quoter.py '标准化配置内容' --region cn-hangzhou -t <用户open_id>
 ```
+
+**默认值**：地域默认 cn-hangzhou（杭州），磁盘类型默认 ESSD PL0，带宽计费方式默认按固定带宽。
 
 ### OSS 统计
 

@@ -318,12 +318,12 @@ def parse_text_instances(text: str, default_region: str = DEFAULT_REGION) -> Lis
                     config.system_disk_size = int(sys_disk_simple.group(1))
             
             # 提取数据盘（支持多个）
-            data_disk_pattern = r'数据盘 (\d*)\s*[：:]\s*([\s\S]+?)(?=\s*\||\s*数据盘\d*\s*[：:]|\s*公网带宽|\s*镜像|\s*地域|$)'
+            data_disk_pattern = r'数据盘\s*(?:\d+)?\s*[：:]\s*([\s\S]+?)(?=\s*\||\s*数据盘\d*\s*[：:]|\s*公网带宽|\s*镜像|\s*地域|\s*带宽|$)'
             data_disk_matches = list(re.finditer(data_disk_pattern, part, re.IGNORECASE))
             
             if data_disk_matches:
                 for dm in data_disk_matches:
-                    disk_text = dm.group(2).strip()
+                    disk_text = dm.group(1).strip()
                     # 提取大小
                     size_match = re.search(r'(\d+)\s*GiB', disk_text, re.IGNORECASE)
                     disk_size = int(size_match.group(1)) if size_match else 0
