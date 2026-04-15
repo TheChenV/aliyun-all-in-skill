@@ -14,6 +14,10 @@ import argparse
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OSS_STAT = os.path.join(SCRIPT_DIR, "oss_stat.py")
 
+# venv Python（优先使用，确保 oss2 等依赖可用）
+VENV_PYTHON = os.path.join(SCRIPT_DIR, "venv", "bin", "python3")
+PYTHON = VENV_PYTHON if os.path.exists(VENV_PYTHON) else "python3"
+
 # 输出目录
 OUTPUT_DIR = "/root/.openclaw/workspace/download/"
 
@@ -137,7 +141,7 @@ def main():
     print(f"开始 OSS 资源统计...")
     
     result = subprocess.run(
-        ["python3", OSS_STAT, args.ak, args.sk],
+        [PYTHON, OSS_STAT, args.ak, args.sk],
         capture_output=True,
         text=True,
         timeout=300

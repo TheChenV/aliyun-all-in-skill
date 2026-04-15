@@ -36,6 +36,17 @@ venv/bin/python3 scripts/ecs_text_quoter.py '标准化配置内容' --region cn-
 
 **默认值**：地域默认 cn-hangzhou（杭州），磁盘类型默认 ESSD PL0，带宽计费方式默认按固定带宽。
 
+**自动执行流程**（传入 `-t` 参数后自动完成，无需额外操作）：
+
+| 步骤 | 操作 | 说明 |
+|------|------|------|
+| 1 | 查询价格 | 逐台实例调用 MCP 查询 1 年和 3 年价格 |
+| 2 | 生成 Excel | 报价单保存到 `~/.openclaw/workspace/download/` 目录 |
+| 3 | 发送文件 | 自动调用 `openclaw message send --channel feishu --target <用户open_id> --media <文件路径>` 发送到飞书 |
+| 4 | 清理文件 | 发送成功后自动删除本地 Excel 文件 |
+
+**注意**：`-t/--target` 为必须参数，不传入则脚本退出。
+
 ### OSS 统计
 
 ```bash
