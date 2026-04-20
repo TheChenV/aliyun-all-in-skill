@@ -8,7 +8,7 @@ description: 阿里云资源报价与统计工具。支持 ECS 报价查询和 O
 ## 功能概述
 
 - **ECS 报价**：查询阿里云 ECS 实例价格，生成 Excel 报价单
-- **OSS 统计**：分析 OSS Bucket 使用情况，生成统计报告
+- **OSS 统计**：分析 OSS Bucket 使用情况 + ECS 快照统计，生成统计报告
 
 ## 使用方式
 
@@ -51,7 +51,9 @@ venv/bin/python3 scripts/ecs_text_quoter.py '标准化配置内容' --region cn-
 
 **注意**：`-t/--target` 为必须参数，不传入则脚本退出。
 
-### OSS 统计
+### OSS 统计（含 ECS 快照）
+
+> **默认包含 ECS 快照统计**：每次 OSS 统计都会自动查询各地域 ECS 快照信息（源云盘容量 + 快照容量），并按地域合并展示在 Excel 中。
 
 ```bash
 venv/bin/python3 scripts/oss_quoter_auto.py <AK> <SK> -t <用户open_id>
