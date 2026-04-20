@@ -18,6 +18,9 @@ import urllib.error
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 
+# OAuth Token 刷新端点
+OAUTH_TOKEN_URL = "https://oauth.aliyun.com/v1/token"
+
 
 @dataclass
 class PriceResult:
@@ -72,12 +75,80 @@ class MCPClient:
             with open(config_path, 'r', encoding='utf-8') as f:
                 return json.load(f)
         return {}
+
+    def _save_config(self, filename: str, data: Dict) -> None:
+        """保存配置文件"""
+        config_path = os.path.join(self.config_dir, filename)
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
     
     def _get_access_token(self) -> str:
-        """获取 Access Token"""
-        if self.token_data and "access_token" in self.token_data:
-            return self.token_data["access_token"]
-        raise ValueError("未找到 Access Token，请先完成 OAuth 授权")
+        """获取 Access Token，过期时自动刷新"""
+        if not self.token_data or "access_token" not in self.token_data:
+            raise ValueError("未找到 Access Token，请先完成 OAuth 授权")
+
+        # 检查是否过期（预留 5 分钟缓冲）
+        expires_at = self.token_data.get("expires_at", 0)
+        if expires_at and time.time() >= expires_at - 300:
+            # Token 已过期或即将过期，尝试自动刷新
+            self._auto_refresh_token()
+
+        return self.token_data["access_token"]
+
+    def _auto_refresh_token(self) -> None:
+        """使用 refresh_token 自动刷新 access_token"""
+        refresh_token = self.token_data.get("refresh_token")
+        if not refresh_token:
+            raise ValueError("未找到 Refresh Token，无法自动刷新，请重新完成 OAuth 授权")
+
+        app_id = self.config.get("oauth", {}).get("app_id", "")
+        if not app_id:
+            raise ValueError("未配置 app_id，无法刷新 Token")
+
+        # 调用 OAuth Token 刷新端点
+        post_data = urllib.parse.urlencode({
+            "grant_type": "refresh_token",
+            "client_id": app_id,
+            "refresh_token": refresh_token,
+        }).encode("utf-8")
+
+        req = urllib.request.Request(
+            OAUTH_TOKEN_URL,
+            data=post_data,
+            method="POST",
+        )
+        req.add_header("Content-Type", "application/x-www-form-urlencoded")
+
+        try:
+            with urllib.request.urlopen(req, timeout=30) as response:
+                token_resp = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode("utf-8")
+            raise ValueError(
+                f"Token 刷新失败 (HTTP {e.code}): {error_body[:300]}\n"
+                f"请重新运行 oauth_local_server.py 完成授权"
+            )
+        except Exception as e:
+            raise ValueError(f"Token 刷新请求异常: {e}")
+
+        if "access_token" not in token_resp:
+            error_msg = token_resp.get("error_description", json.dumps(token_resp, ensure_ascii=False))
+            raise ValueError(
+                f"Token 刷新失败: {error_msg[:300]}\n"
+                f"请重新运行 oauth_local_server.py 完成授权"
+            )
+
+        # 更新内存中的 token 数据
+        self.token_data["access_token"] = token_resp["access_token"]
+        self.token_data["expires_at"] = time.time() + token_resp.get("expires_in", 3600)
+
+        # 如果返回了新的 refresh_token，一并保存（阿里云可能轮换）
+        if "refresh_token" in token_resp:
+            self.token_data["refresh_token"] = token_resp["refresh_token"]
+
+        # 持久化到 config.json
+        self.config["token"] = self.token_data
+        self._save_config("config.json", self.config)
     
     def _init_session(self) -> str:
         """
