@@ -198,21 +198,22 @@ def parse_text_instances(text: str, default_region: str = DEFAULT_REGION) -> Lis
                     if series_name_match:
                         config.raw_series_input = series_name_match.group(1).lower()
             
-            # 提取系统盘
-            sys_disk_match = re.search(r'系统盘\s*[：:]\s*(.+?)(?=\n|\s*[-－—]|\s*数据盘|\s*公网带宽|\s*带宽|$)', part, re.IGNORECASE)
+            # 提取系统盘（支持：系统盘：500GiB / 系统盘500G / 系统盘 500G）
+            sys_disk_match = re.search(r'系统盘[：:]?\s*(.+?)(?=\n|\s*[-－—]|\s*数据盘|\s*公网带宽|\s*带宽|$)', part, re.IGNORECASE)
             if sys_disk_match:
                 disk_text = sys_disk_match.group(1).strip()
-                size_match = re.search(r'(\d+)\s*GiB', disk_text, re.IGNORECASE)
+                # 支持 GiB/G/GB 等多种单位
+                size_match = re.search(r'(\d+)\s*[Gg][iI]?[bB]?', disk_text)
                 if size_match:
                     config.system_disk_size = int(size_match.group(1))
                 dtype, dcategory, dpl = parse_disk_type(disk_text)
                 config.system_disk_type = dtype
             
             # 提取数据盘
-            data_disk_match = re.search(r'数据盘\s*[：:]\s*(.+?)(?=\n|\s*[-－—]|\s*公网带宽|\s*带宽|$)', part, re.IGNORECASE)
+            data_disk_match = re.search(r'数据盘[：:]?\s*(.+?)(?=\n|\s*[-－—]|\s*公网带宽|\s*带宽|$)', part, re.IGNORECASE)
             if data_disk_match:
                 disk_text = data_disk_match.group(1).strip()
-                size_match = re.search(r'(\d+)\s*GiB', disk_text, re.IGNORECASE)
+                size_match = re.search(r'(\d+)\s*[Gg][iI]?[bB]?', disk_text)
                 disk_size = int(size_match.group(1)) if size_match else 0
                 dtype, dcategory, dpl = parse_disk_type(disk_text)
                 if disk_size > 0:
@@ -223,8 +224,14 @@ def parse_text_instances(text: str, default_region: str = DEFAULT_REGION) -> Lis
                         'size': disk_size
                     })
             
-            # 提取带宽
-            bw_match = re.search(r'(\d+)\s*[Mm][Bb]ps', part, re.IGNORECASE)
+            # 提取带宽（支持 2Mbps / 2M / 固定宽带2M / 带宽2M 等格式）
+            bw_match = re.search(r'(?:带宽|宽带|按固定|按流量|Mbps|Mbps)[^\d]*(\d+)\s*[Mm]?(?:[Bb]ps?)?', part, re.IGNORECASE)
+            if not bw_match:
+                # 备用：数字+Mbps 格式
+                bw_match = re.search(r'(\d+)\s*[Mm][Bb]ps', part, re.IGNORECASE)
+            if not bw_match:
+                # 备用：(固定)宽带X M 格式
+                bw_match = re.search(r'宽[带帯][^\d]*(\d+)', part)
             if bw_match:
                 config.bandwidth = int(bw_match.group(1))
             
@@ -241,18 +248,22 @@ def parse_text_instances(text: str, default_region: str = DEFAULT_REGION) -> Lis
             
             instances.append(config)
     else:
-        # 单行格式解析（原有逻辑）
-        # 按序号分割（1. 2. ... 15. 等）- 匹配行首的完整序号
-        parts = re.split(r'(?=^\d+\.\s*实例规格)', text, flags=re.MULTILINE)
+        # 单行格式解析
+        # 按序号分割：支持 1. / 1、/ **1.** 等多种分隔符（不强制要求后跟空格）
+        parts = re.split(r'(?=^(?:\*\*)?\d+[\.、．])', text, flags=re.MULTILINE)
         
         for part in parts:
-            if not part.strip() or '实例规格' not in part:
+            part = part.strip()
+            if not part:
+                continue
+            # 宽松匹配：只要有 CPU/内存 或 系统盘 关键词即可
+            if not re.search(r'(\d+\s*核|\d+\s*vCPU|系统盘)', part, re.IGNORECASE):
                 continue
             
             config = TextInstanceConfig()
             
-            # 提取序号作为名称 - 匹配行首的完整数字
-            num_match = re.match(r'^(\d+)\.\s*实例规格', part.strip())
+            # 提取序号（支持 1. / 1、/ **1.** 等格式）
+            num_match = re.match(r'^(?:\*\*)?(\d+)[\.、．]', part)
             if num_match:
                 config.name = f"实例{num_match.group(1)}"
             else:
@@ -297,35 +308,30 @@ def parse_text_instances(text: str, default_region: str = DEFAULT_REGION) -> Lis
                 config.region = global_region
                 config.region_name = global_region_name
             
-            # 提取系统盘（支持冒号和无冒号格式）
+            # 提取系统盘（支持：系统盘：500GiB / 系统盘500G / 系统盘 500G）
             sys_disk_match = re.search(
-                r'系统盘\s*[：:]\s*(.+?)(?=\s*\||\s*数据盘|\s*公网带宽|\s*镜像|\s*地域|$)',
+                r'系统盘[：:]?\s*(.+?)(?=\s*\||\s*数据盘|\s*公网带宽|\s*镜像|\s*地域|$)',
                 part, re.IGNORECASE
             )
             if sys_disk_match:
                 disk_text = sys_disk_match.group(1).strip()
-                # 提取大小
-                size_match = re.search(r'(\d+)\s*GiB', disk_text, re.IGNORECASE)
+                # 支持 GiB/G/GB 等多种单位
+                size_match = re.search(r'(\d+)\s*[Gg][iI]?[bB]?', disk_text)
                 if size_match:
                     config.system_disk_size = int(size_match.group(1))
                 # 提取类型
                 dtype, dcategory, dpl = parse_disk_type(disk_text)
                 config.system_disk_type = dtype
-            else:
-                # 备用匹配：系统盘 300G 格式（无冒号）
-                sys_disk_simple = re.search(r'系统盘\s+(\d+)\s*[GGBiB]*', part, re.IGNORECASE)
-                if sys_disk_simple:
-                    config.system_disk_size = int(sys_disk_simple.group(1))
             
             # 提取数据盘（支持多个）
-            data_disk_pattern = r'数据盘\s*(?:\d+)?\s*[：:]\s*([\s\S]+?)(?=\s*\||\s*数据盘\d*\s*[：:]|\s*公网带宽|\s*镜像|\s*地域|\s*带宽|$)'
+            data_disk_pattern = r'数据盘\s*(?:\d+)?\s*[：:]?\s*([\s\S]+?)(?=\s*\||\s*数据盘\d*\s*[：:]|\s*公网带宽|\s*镜像|\s*地域|\s*带宽|$)'
             data_disk_matches = list(re.finditer(data_disk_pattern, part, re.IGNORECASE))
             
             if data_disk_matches:
                 for dm in data_disk_matches:
                     disk_text = dm.group(1).strip()
-                    # 提取大小
-                    size_match = re.search(r'(\d+)\s*GiB', disk_text, re.IGNORECASE)
+                    # 提取大小（支持 GiB/G/GB）
+                    size_match = re.search(r'(\d+)\s*[Gg][iI]?[bB]?', disk_text)
                     disk_size = int(size_match.group(1)) if size_match else 0
                     # 提取类型
                     dtype, dcategory, dpl = parse_disk_type(disk_text)
@@ -337,13 +343,13 @@ def parse_text_instances(text: str, default_region: str = DEFAULT_REGION) -> Lis
                             'size': disk_size
                         })
             
-            # 提取带宽（支持 Mbps 和 "带宽N" 两种格式）
+            # 提取带宽（支持 2Mbps / 固定宽带2M / 带宽10M 等格式）
             bw_match = re.search(r'(\d+)\s*[Mm][Bb]ps', part, re.IGNORECASE)
             if bw_match:
                 config.bandwidth = int(bw_match.group(1))
             else:
-                # 备用匹配：带宽10M、带宽10Mbps 等格式
-                bw_match2 = re.search(r'带宽\s*(\d+)\s*[Mm]?', part, re.IGNORECASE)
+                # 备用匹配：固定宽带2M、带宽10M 等格式
+                bw_match2 = re.search(r'(?:固定)?[宽带带宽]+[^\d]*(\d+)\s*[Mm]?', part, re.IGNORECASE)
                 if bw_match2:
                     config.bandwidth = int(bw_match2.group(1))
             
