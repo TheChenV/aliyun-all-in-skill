@@ -1,6 +1,6 @@
 ---
 name: aliyun-all-in-skill
-description: 阿里云资源报价与统计工具。支持 ECS 报价查询和 OSS 资源统计。触发场景：(1) ECS报价、询价、云产品报价、阿里云报价、ECS 价格查询 (2) 发送 ecs_instance_list_*.csv 文件 (3) OSS统计、OSS分析、Bucket 统计、对象存储统计。自动生成 Excel 报价单并发送到飞书。
+description: 阿里云资源报价与统计工具。支持 ECS 报价查询和 OSS 资源统计。触发场景：(1) ECS报价、询价、云产品报价、阿里云报价、ECS 价格查询 (2) 发送 ecs_instance_list_*.csv 文件 (3) OSS统计、OSS分析、Bucket 统计、对象存储统计 (4) 发送 buckets_*.csv 文件。生成 Excel 后由 AI 通过 openclaw message send 发送到当前对话。
 ---
 
 # 阿里云资源报价与统计
@@ -8,71 +8,62 @@ description: 阿里云资源报价与统计工具。支持 ECS 报价查询和 O
 ## 功能概述
 
 - **ECS 报价**：查询阿里云 ECS 实例价格，生成 Excel 报价单
-- **OSS 统计**：分析 OSS Bucket 使用情况 + ECS 快照统计，生成统计报告
+- **OSS 统计**：分析 OSS 资源使用情况，生成统计报告
 
-## 使用方式
+## OSS 统计场景判断
 
-### ECS 报价
+AI 需根据输入类型自动判断 OSS 统计场景：
 
-#### 场景一：标准 CSV 格式（直接报价）
+| 输入 | 场景 | 说明 |
+|------|------|------|
+| AK + SK | 场景一 | 基于 AK 查询账号 OSS 资源，**含 ECS 快照** |
+| `buckets_YYYYMMDD.csv` 文件 | 场景二 | 基于 CSV 文件统计，**不含 ECS 快照** |
+
+### OSS 场景一：基于 AK 查询（含 ECS 快照）
+
+```bash
+venv/bin/python3 scripts/oss_quoter_auto.py <AK> <SK>
+```
+
+### OSS 场景二：基于 CSV 文件（不含 ECS 快照）
+
+文件名匹配 `buckets_*.csv` 时，使用 CSV 场景：
+
+```bash
+venv/bin/python3 scripts/oss_csv_quoter_auto.py /path/to/buckets_YYYYMMDD.csv
+```
+
+两种场景共用同一个 Excel 模板（地域、存储类型、冗余类型、实际存储、计费存储），场景二不含 ECS 快照行。
+
+## ECS 报价
+
+### 场景一：标准 CSV 格式（直接报价）
 
 文件名匹配 `ecs_instance_list_**_YYYY-MM-DD.csv` 时，直接报价：
 
 ```bash
-venv/bin/python3 scripts/ecs_csv_quoter_auto.py /path/to/file.csv -t <用户open_id>
+venv/bin/python3 scripts/ecs_csv_quoter_auto.py /path/to/file.csv
 ```
 
-#### 场景二：文本配置（AI 标准化后直接报价）
-
-其他所有形式（文本描述、非标准文件）执行以下流程：
+### 场景二：文本配置（AI 标准化后直接报价）
 
 > ⚠️ **关键：标准化由 AI 完成，不是脚本！**
-> 用户的自然语言描述五花八门（`系统盘500G`、`固定宽带2M`、`1、4核16G` 等），脚本的 Python 解析器对宽松格式支持有限。
 > **AI 必须先将用户描述转为标准格式，再传给脚本。**
 
-1. **AI 预处理**：理解用户自然语言描述，提取每项实例的 CPU、内存、系统盘、数据盘、带宽等参数
-2. **AI 标准化输出**：转为标准格式字符串，如 `实例规格：8核64G 系统盘：50GiB 数据盘：1000GiB 带宽：5Mbps`
-3. **直接报价**：无需二次确认，将标准化配置传入脚本执行
-
 ```bash
-venv/bin/python3 scripts/ecs_text_quoter.py '标准化配置内容' --region cn-hangzhou -t <用户open_id>
+venv/bin/python3 scripts/ecs_text_quoter.py '标准化配置内容' --region cn-hangzhou
 ```
 
 **默认值**：地域默认 cn-hangzhou（杭州），磁盘类型默认 ESSD PL0，带宽计费方式默认按固定带宽。
 
-**自动执行流程**（传入 `-t` 参数后自动完成，无需额外操作）：
+## 执行流程（所有场景通用）
 
 | 步骤 | 操作 | 说明 |
 |------|------|------|
-| 1 | 查询价格 | 逐台实例调用 MCP 查询 1 年和 3 年价格 |
-| 2 | 生成 Excel | 报价单保存到 `~/.openclaw/workspace/download/` 目录 |
-| 3 | 发送文件 | 自动调用 `openclaw message send --channel feishu --target <用户open_id> --media <文件路径>` 发送到飞书 |
-| 4 | 清理文件 | 发送成功后自动删除本地 Excel 文件 |
-
-**注意**：`-t/--target` 为必须参数，不传入则脚本退出。
-
-### OSS 统计（含 ECS 快照）
-
-> **默认包含 ECS 快照统计**：每次 OSS 统计都会自动查询各地域 ECS 快照信息（源云盘容量 + 快照容量），并按地域合并展示在 Excel 中。
-
-```bash
-venv/bin/python3 scripts/oss_quoter_auto.py <AK> <SK> -t <用户open_id>
-```
-
-## 参数说明
-
-| 参数 | 说明 |
-|------|------|
-| `-t, --target` | 目标用户 open_id（必须） |
-| `-m, --message` | 自定义发送消息（可选） |
-| `--region` | 地域代码，默认 cn-hangzhou（可选） |
-
-### 环境变量
-
-| 变量 | 说明 |
-|------|------|
-| `FEISHU_TARGET` | 目标用户 open_id（与 --target 二选一） |
-| `FEISHU_ACCOUNT` | 飞书账号名称（覆盖 config.json 中的 feishu_account） |
+| 1 | 调用脚本 | 根据场景选择对应脚本 |
+| 2 | 输出路径 | 脚本输出 `FILE_PATH:xxx.xlsx`，AI 读取此路径 |
+| 3 | 发送文件 | AI 使用 `openclaw message send --channel <当前对话channel> --target <当前对话target> --media <文件路径>` 发送到当前对话 |
+| 4 | 清理文件 | AI 发送成功后删除本地 Excel 文件 |
 
 ## 规格验证规则
 
@@ -89,48 +80,26 @@ venv/bin/python3 scripts/oss_quoter_auto.py <AK> <SK> -t <用户open_id>
 ```
 aliyun-all-in-skill/
 ├── SKILL.md                           # Skill 定义文件
-├── README.md                          # 项目文档
-├── .gitignore                         # Git 忽略配置
 ├── config/
-│   └── config.json.example            # 配置文件模板
-│   └── config.json                    # 实际配置（需手动创建）
+│   └── config.json                    # MCP + OAuth 配置
 ├── references/
-│   └── ecs_series.json                # ECS 规格数据（326 规格族，1902 规格）
+│   └── ecs_series.json                # ECS 规格数据
 └── scripts/
-    ├── setup.sh                       # 交互式初始化脚本
-    ├── mcp_verify.sh                  # MCP 连通性校验脚本
-    ├── oauth_local_server.py.example  # OAuth 授权脚本模板
-    ├── oauth_local_server.py          # 实际 OAuth 脚本（需手动生成）
-    ├── venv/                          # Python 虚拟环境
-    ├── ecs_csv_quoter_auto.py         # 场景一：CSV 自动报价入口
-    ├── ecs_csv_quoter.py              # CSV 解析核心逻辑
-    ├── ecs_text_quoter.py             # 场景二：文本报价入口
-    ├── ecs_spec_validator.py          # ECS 规格验证器
-    ├── ecs_excel_generator.py         # Excel 报价单生成器
-    ├── ecs_constants.py               # 公共常量定义
-    ├── ecs_quoter.py                  # MCP 价格查询封装
+    ├── ecs_csv_quoter_auto.py         # ECS 场景一：CSV 自动报价
+    ├── ecs_text_quoter.py             # ECS 场景二：文本报价
+    ├── oss_quoter_auto.py             # OSS 场景一：AK 查询（含快照）
+    ├── oss_csv_quoter_auto.py         # OSS 场景二：CSV 统计（不含快照）
+    ├── oss_excel.py                   # OSS Excel 生成器（共用）
+    ├── oss_stat.py                    # OSS 分析核心
+    ├── ecs_quoter.py                  # ECS 报价统一入口
     ├── mcp_client.py                  # MCP JSON-RPC 客户端
-    ├── oss_stat.py                    # OSS 资源统计核心
-    ├── oss_excel.py                   # OSS Excel 报告生成
-    ├── oss_quoter_auto.py             # OSS 统计自动发送
-    └── requirements.txt               # Python 依赖列表
+    ├── ...                            # 其他支撑脚本
+    └── venv/                          # Python 虚拟环境
 ```
-
-**核心文件说明：**
-
-| 文件 | 功能 |
-|------|------|
-| `config/config.json` | MCP Endpoint、OAuth 配置、Token 存储 |
-| `references/ecs_series.json` | ECS 规格族数据，用于规格验证和推断 |
-| `scripts/setup.sh` | 交互式引导用户完成环境初始化 |
-| `scripts/mcp_verify.sh` | 校验 MCP 连通性，诊断配置问题 |
-| `scripts/mcp_client.py` | MCP JSON-RPC 2.0 客户端封装 |
 
 ## 配置要求
 
-### MCP 配置
-
-`config/config.json` 需要配置：
+`config/config.json` 需要配置 MCP 和 OAuth（ECS 报价必需，OSS 场景一也需要）：
 
 ```json
 {
@@ -144,12 +113,9 @@ aliyun-all-in-skill/
     "access_token": "...",
     "refresh_token": "...",
     "expires_at": 1775045890
-  },
-  "feishu_account": "feishu-yunbao"
+  }
 }
 ```
-
-`feishu_account` 字段（可选）：指定发送报价单时使用的飞书账号名称。如果不配置，脚本将使用 OpenClaw 默认飞书账号。支持通过 `FEISHU_ACCOUNT` 环境变量覆盖。
 
 首次使用需要 OAuth 授权。
 
@@ -164,14 +130,6 @@ venv/bin/pip install -r requirements.txt
 依赖包：
 - `openpyxl>=3.1.2` - Excel 生成
 - `oss2>=2.19.0` - OSS SDK
-
-## 移植指南
-
-1. 复制整个 skill 目录
-2. 创建虚拟环境并安装依赖
-3. 配置 `config/config.json`（MCP endpoint、OAuth）
-4. 首次使用需要 OAuth 授权
-5. 调用时传入正确的 `--target` 参数
 
 ## 参考文档
 

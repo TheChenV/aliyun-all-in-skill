@@ -14,7 +14,6 @@ import os
 import sys
 import re
 import argparse
-import subprocess
 from typing import List, Optional
 from dataclasses import dataclass, field
 
@@ -567,47 +566,11 @@ def quote_text_instances(
     return file_path
 
 
-def get_feishu_account() -> str:
-    """获取飞书账号名称：优先环境变量，其次 config.json"""
-    account = os.environ.get("FEISHU_ACCOUNT")
-    if not account:
-        try:
-            config_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "config")
-            config_path = os.path.abspath(os.path.join(config_dir, "config.json"))
-            if os.path.exists(config_path):
-                with open(config_path) as f:
-                    config = json.load(f)
-                account = config.get("feishu_account")
-        except Exception:
-            pass
-    return account
-
-
-def send_file(file_path: str, message: str, target: str) -> bool:
-    """发送文件到飞书"""
-    cmd = [
-        "openclaw", "message", "send",
-        "--channel", "feishu",
-        "--target", target,
-        "--message", message,
-        "--media", file_path
-    ]
-    account = get_feishu_account()
-    if account:
-        idx = cmd.index("--target")
-        cmd.insert(idx, "--account")
-        cmd.insert(idx + 1, account)
-    
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-    return "✅ Sent via Feishu" in result.stdout or "✅ Sent via Feishu" in result.stderr
-
-
 def main(args=None):
     """主函数"""
     parser = argparse.ArgumentParser(description="文本配置报价（场景二）")
     parser.add_argument("text", nargs='?', help="配置文本")
     parser.add_argument("-f", "--file", help="配置文件路径")
-    parser.add_argument("-t", "--target", help="目标用户 open_id")
     parser.add_argument("-r", "--region", default=DEFAULT_REGION, help="地域代码（默认：cn-hangzhou）")
     
     # 支持外部传入参数
@@ -643,24 +606,9 @@ def main(args=None):
     file_path = quote_text_instances(instances, validator, args.region)
     
     if file_path:
-        # 发送文件
-        target = args.target
-        if not target:
-            target = os.environ.get("FEISHU_TARGET")
-        if not target:
-            print("❌ 未指定目标用户 open_id，请通过 --target 参数或 FEISHU_TARGET 环境变量传入")
-            sys.exit(1)
-        
-        message = f"ECS 报价单已生成，共 {len(instances)} 台实例。"
-        
-        print("\n发送文件到飞书...")
-        if send_file(file_path, message, target):
-            print("✅ 文件发送成功")
-            # 清理
-            os.remove(file_path)
-            print(f"✅ 已删除本地文件")
-        else:
-            print("❌ 文件发送失败")
+        # 输出文件路径供 AI 发送
+        print(f"\n✅ 报价单已生成：{file_path}（共 {len(instances)} 台实例）")
+        print(f"FILE_PATH:{file_path}")
 
 
 if __name__ == "__main__":

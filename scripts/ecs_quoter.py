@@ -9,10 +9,9 @@ ECS 报价统一入口
 - 场景二：其他所有形式 → 先分析确认，再报价
 
 使用方式：
-    python ecs_quoter.py <input> [--target <open_id>] [--region <region>]
+    python ecs_quoter.py <input> [--region <region>]
     
     input: CSV 文件路径或文本配置
-    --target: 目标用户 open_id（飞书发送用）
     --region: 地域代码（默认 cn-beijing）
 """
 
@@ -45,25 +44,20 @@ def is_csv_file(input_str: str) -> bool:
     return bool(CSV_PATTERN.match(filename))
 
 
-def quote_csv(csv_path: str, target: str = None) -> Tuple[bool, str]:
+def quote_csv(csv_path: str) -> Tuple[bool, str]:
     """
     场景一：CSV 文件报价
     
     Args:
         csv_path: CSV 文件路径
-        target: 目标用户 open_id
         
     Returns:
         (success, message)
     """
     from ecs_csv_quoter_auto import main as csv_main
     
-    # 构建参数
     args = ['ecs_csv_quoter_auto.py', csv_path]
-    if target:
-        args.extend(['-t', target])
     
-    # 调用
     sys.argv = args
     try:
         csv_main()
@@ -72,13 +66,12 @@ def quote_csv(csv_path: str, target: str = None) -> Tuple[bool, str]:
         return False, f"报价失败: {str(e)}"
 
 
-def quote_text(text: str, target: str = None, region: str = "cn-beijing") -> Tuple[bool, str]:
+def quote_text(text: str, region: str = "cn-beijing") -> Tuple[bool, str]:
     """
     场景二：文本配置报价
     
     Args:
         text: 配置文本
-        target: 目标用户 open_id
         region: 地域代码
         
     Returns:
@@ -86,12 +79,8 @@ def quote_text(text: str, target: str = None, region: str = "cn-beijing") -> Tup
     """
     from ecs_text_quoter import main as text_main
     
-    # 构建参数
     args = ['ecs_text_quoter.py', text, '-r', region]
-    if target:
-        args.extend(['-t', target])
     
-    # 调用
     sys.argv = args
     try:
         text_main()
@@ -138,7 +127,7 @@ def analyze_text(text: str) -> dict:
     }
 
 
-def quote(input_str: str, target: str = None, region: str = "cn-beijing", 
+def quote(input_str: str, region: str = "cn-beijing", 
           skip_confirm: bool = False) -> Tuple[bool, str, Optional[dict]]:
     """
     统一报价入口
@@ -147,7 +136,6 @@ def quote(input_str: str, target: str = None, region: str = "cn-beijing",
     
     Args:
         input_str: 输入内容（CSV 文件路径或文本配置）
-        target: 目标用户 open_id
         region: 地域代码
         skip_confirm: 是否跳过确认（场景二用）
         
@@ -158,7 +146,7 @@ def quote(input_str: str, target: str = None, region: str = "cn-beijing",
     if is_csv_file(input_str):
         # 场景一：直接报价
         print(f"[场景一] 检测到标准 CSV 文件：{os.path.basename(input_str)}")
-        success, msg = quote_csv(input_str, target)
+        success, msg = quote_csv(input_str)
         return success, msg, None
     else:
         # 场景二：先分析
@@ -167,7 +155,7 @@ def quote(input_str: str, target: str = None, region: str = "cn-beijing",
         
         if skip_confirm:
             # 直接报价
-            success, msg = quote_text(input_str, target, region)
+            success, msg = quote_text(input_str, region)
             return success, msg, analysis
         else:
             # 返回分析结果，等待确认
@@ -182,22 +170,21 @@ def main():
         epilog="""
 示例：
   # 场景一：CSV 文件报价
-  python ecs_quoter.py ecs_instance_list_cn-beijing_2026-02-08.csv -t ou_xxx
+  python ecs_quoter.py ecs_instance_list_cn-beijing_2026-02-08.csv
   
   # 场景二：文本配置报价
-  python ecs_quoter.py "ecs.g6.xlarge 4核16G" -t ou_xxx
+  python ecs_quoter.py "ecs.g6.xlarge 4核16G"
   
   # 场景二：从文件读取配置
-  python ecs_quoter.py -f config.txt -t ou_xxx
+  python ecs_quoter.py -f config.txt
   
   # 场景二：跳过确认直接报价
-  python ecs_quoter.py "ecs.g6.xlarge 4核16G" -t ou_xxx --skip-confirm
+  python ecs_quoter.py "ecs.g6.xlarge 4核16G" --skip-confirm
 """
     )
     
     parser.add_argument("input", nargs='?', help="CSV 文件路径或文本配置")
     parser.add_argument("-f", "--file", help="配置文件路径")
-    parser.add_argument("-t", "--target", help="目标用户 open_id")
     parser.add_argument("-r", "--region", default="cn-beijing", help="地域代码")
     parser.add_argument("--skip-confirm", action="store_true", help="跳过确认直接报价")
     
@@ -215,7 +202,6 @@ def main():
     # 调用统一入口
     success, msg, analysis = quote(
         input_str, 
-        args.target, 
         args.region,
         args.skip_confirm
     )
