@@ -18,12 +18,16 @@ aliyun-all-in-skill/
     ├── mcp_verify.sh                  # MCP 连通性校验脚本
     ├── oauth_local_server.py.example  # OAuth 授权脚本模板
     ├── ecs_csv_quoter_auto.py         # ECS 场景一：CSV 自动报价入口
-    ├── ecs_csv_quoter.py              # CSV 解析核心逻辑
+    ├── ecs_csv_quoter.py              # ECS CSV 解析核心逻辑
     ├── ecs_text_quoter.py             # ECS 场景二：文本报价入口
     ├── ecs_spec_validator.py          # ECS 规格验证器
-    ├── ecs_excel_generator.py         # Excel 报价单生成器
-    ├── ecs_constants.py               # 公共常量定义
+    ├── ecs_excel_generator.py         # ECS Excel 报价单生成器
+    ├── ecs_constants.py               # ECS 公共常量定义
     ├── ecs_quoter.py                  # ECS 报价统一入口
+    ├── rds_csv_quoter_auto.py         # RDS 场景一：CSV 自动报价入口
+    ├── rds_csv_quoter.py              # RDS 报价核心逻辑（含 6 折优惠策略）
+    ├── rds_excel_generator.py         # RDS Excel 报价单生成器
+    ├── rds_constants.py               # RDS 常量定义
     ├── mcp_client.py                  # MCP JSON-RPC 客户端
     ├── oss_stat.py                    # OSS 资源统计核心
     ├── oss_excel.py                   # OSS Excel 报告生成器（两种场景共用）
@@ -61,7 +65,7 @@ cd aliyun-all-in-skill
 ```
 
 脚本会交互式引导你完成：
-- Python 虬拟环境安装
+- Python 虚拟环境安装
 - 参数配置（MCP Endpoint、app_id）
 - 生成配置文件和 OAuth 脚本
 
@@ -136,8 +140,8 @@ venv/bin/python3 scripts/ecs_text_quoter.py '配置内容' --region cn-hangzhou
 | 场景 | 输入示例 | 验证方式 |
 |------|---------|---------|
 | 场景 1 | `ecs.g6.xlarge` | JSON 字典精确匹配 |
-| 场景 2 | `c7 8核16G` | 规格族 + CPU/内存匹配 |
-| 场景 3 | `16核32G` | 默认优先级推断匹配 |
+| 场景 2 | `c7 8 核 16G` | 规格族+CPU/内存匹配 |
+| 场景 3 | `16 核 32G` | 默认优先级推断匹配 |
 
 **场景 3 默认优先级**：`u1 > u2i > c9i > g9i > r9i`
 
@@ -151,10 +155,10 @@ venv/bin/python3 scripts/ecs_text_quoter.py '配置内容' --region cn-hangzhou
 | B | 产品描述 | 多行文本，含实例规格、镜像、系统盘、数据盘、公网带宽 |
 | C | 地域 | 地域名称（如「杭州（cn-hangzhou）」） |
 | D | 数量 | 固定为 1 |
-| E | 官网目录价（元/1年） | 1 年官网标准价 |
-| F | 官网折扣价（元/1年） | 1 年实际折扣价 |
-| G | 官网目录价（元/3年） | 3 年官网标准价 |
-| H | 官网折扣价（元/3年） | 3 年实际折扣价 |
+| E | 官网目录价（元/1 年） | 1 年官网标准价 |
+| F | 官网折扣价（元/1 年） | 1 年实际折扣价 |
+| G | 官网目录价（元/3 年） | 3 年官网标准价 |
+| H | 官网折扣价（元/3 年） | 3 年实际折扣价 |
 | I | 备注 | 折扣规则说明 |
 
 **产品描述格式示例**
@@ -172,6 +176,42 @@ venv/bin/python3 scripts/ecs_text_quoter.py '配置内容' --region cn-hangzhou
 - 第一行：客户名称 + 报价日期
 - 合计行：各价格列自动汇总
 - 备注行：「产品价格可能有波动，以官网实际价格为准」（红色字体）
+
+### RDS 报价
+
+基于阿里云 RDS OpenAPI，支持 MySQL、PostgreSQL、SQLServer、MariaDB 四种数据库类型的价格查询。
+
+**场景一：标准 CSV 格式自动报价**
+
+文件名匹配 `rds_instance_list_**_YYYY-MM-DD.csv` 或 `rds_instance_list_**_YYYY 年 MM 月 DD 日.csv` 时，直接报价。
+
+```bash
+venv/bin/python3 scripts/rds_csv_quoter_auto.py /path/to/file.csv
+```
+
+**报价说明：**
+- 支持 4 种数据库类型：MySQL、SQLServer、PostgreSQL、MariaDB
+- 自动查询 1 年和 3 年价格
+- 自动选择 1 年目录价最高的实例应用"新客首购 6 折优惠"（限 1 次，限 1 件）
+- 输出 Excel 格式与 ECS 报价单一致
+
+**价格字段映射：**
+
+| 价格类型 | 数据路径 |
+|---------|---------|
+| 官网目录价（1 年/3 年） | `PriceInfo.OriginalPrice` |
+| 官网折扣价（1 年/3 年） | `OrderLines[0].depreciateInfo.finalActivity.finalFee` |
+| 优惠说明 | `OrderLines[0].depreciateInfo.finalActivity.activityName` |
+
+**6 折优惠策略：**
+- 筛选命中"新客首购云数据库 RDS 1 年享 6 折优惠"的实例
+- 选择 1 年目录价最高的一台应用 6 折
+- 其他命中 6 折但未被选中的实例使用 `standPrice` 并备注"1 年默认折扣价"
+
+**Excel 报价单格式：**
+- 产品名称：固定为"RDS"
+- 产品描述：引擎、产品系列、存储类型、实例规格、存储空间
+- 备注：1 年优惠说明 | 3 年优惠说明
 
 ### OSS 资源统计
 
@@ -199,9 +239,9 @@ venv/bin/python3 scripts/oss_csv_quoter_auto.py /path/to/buckets_YYYYMMDD.csv
 
 | 维度 | 内容 |
 |------|------|
-| 地域 | 按地域聚合（华东1杭州、华北2北京等） |
+| 地域 | 按地域聚合（华东 1 杭州、华北 2 北京等） |
 | 存储类型 | 标准/低频/归档/冷归档/深度冷归档 |
-| 冗余类型 | 本地冗余(LRS)/同城冗余(ZRS) |
+| 冗余类型 | 本地冗余 (LRS)/同城冗余 (ZRS) |
 | 存储量 | 实际存储 + 计费存储 |
 
 ### 文件发送机制
@@ -209,59 +249,10 @@ venv/bin/python3 scripts/oss_csv_quoter_auto.py /path/to/buckets_YYYYMMDD.csv
 脚本只负责生成 Excel 文件并输出路径（`FILE_PATH:xxx.xlsx`），文件发送由 AI（OpenClaw Agent）通过 `openclaw message send` 完成：
 
 ```bash
-openclaw message send --channel <当前对话channel> --target <当前对话target> --media <文件路径>
+openclaw message send --channel <当前对话 channel> --target <当前对话 target> --media <文件路径>
 ```
 
 这种设计确保 Skill 天然支持所有 channel（飞书、Telegram、WhatsApp、Discord 等），无需硬编码任何 channel 或账号信息。
-
-## 未来规划
-
-基于阿里云 OpenAPI MCP Server 的能力，本项目将持续扩展以下场景：
-
-### 产品报价扩展
-- **RDS 报价**：关系型数据库价格查询
-- **OSS 报价**：对象存储费用估算
-- **资源包报价**：预付费资源包推荐与计算
-- **SLB 报价**：负载均衡价格查询
-- **NAT 网关报价**：网关费用估算
-
-### 成本分析
-- **多维度成本统计**：按产品/地域/标签/时间统计
-- **成本趋势分析**：月度/季度成本变化趋势
-- **成本预测**：基于历史数据预测未来成本
-- **成本对比**：不同规格/配置成本对比
-
-### 资源监控
-- **ECS 状态监控**：实例运行状态、资源使用率
-- **OSS 状态监控**：Bucket 存储趋势、访问统计
-- **RDS 状态监控**：数据库性能指标、连接数监控
-- **告警聚合**：多产品告警信息汇总
-
-### 故障排查
-- **日志分析**：云产品日志自动分析
-- **异常诊断**：常见问题自动诊断
-- **修复建议**：故障修复方案推荐
-
-### 安全审计
-- **权限检查**：RAM 权限配置审计
-- **合规检测**：安全配置合规检查
-- **漏洞扫描**：安全漏洞识别
-
-### 资源优化
-- **规格推荐**：基于负载推荐合适规格
-- **闲置资源识别**：低利用率资源识别
-- **资源整合建议**：资源整合优化方案
-
-### 续费管理
-- **到期预警**：即将到期资源提醒
-- **续费建议**：续费时机和方式建议
-- **自动续费配置**：批量续费设置
-
-### 账单分析
-- **账单明细解析**：详细账单项目分析
-- **按产品统计**：各产品费用占比
-- **按地域统计**：各地域费用分布
-- **按标签统计**：标签维度费用聚合
 
 ## 依赖说明
 
@@ -283,6 +274,7 @@ openclaw message send --channel <当前对话channel> --target <当前对话targ
 - [阿里云 OpenAPI MCP Server 官方文档](https://help.aliyun.com/zh/openapi/integrating-openapi-mcp-server-into-agent)
 - [ECS 实例规格族](https://help.aliyun.com/document_detail/25378.html)
 - [OSS 产品文档](https://help.aliyun.com/document_detail/31817.html)
+- [RDS 产品文档](https://help.aliyun.com/product/29597.html)
 
 ## 许可证
 
