@@ -25,6 +25,7 @@ from mcp_client import MCPClient
 @dataclass
 class RDSInstanceConfig:
     """RDS 实例配置"""
+    db_instance_id: str = ""
     region_id: str = ""
     engine: str = ""
     engine_version: str = ""
@@ -55,6 +56,9 @@ def parse_csv(csv_path: str) -> List[RDSInstanceConfig]:
         try:
             with open(csv_path, 'r', encoding=encoding) as f:
                 reader = csv.DictReader(f)
+                # 去除 BOM 等不可见字符
+                if reader.fieldnames:
+                    reader.fieldnames = [name.lstrip('\ufeff').strip() for name in reader.fieldnames]
                 rows = list(reader)
                 # 检查是否有必需字段
                 if rows and 'DBInstanceClass(实例规格)' in reader.fieldnames:
@@ -76,6 +80,7 @@ def parse_csv(csv_path: str) -> List[RDSInstanceConfig]:
         
         # 创建实例配置
         instance = RDSInstanceConfig(
+            db_instance_id=row.get('DBInstanceId(实例ID)', '').strip('"'),
             region_id=row.get('RegionId(地域)', ''),
             engine=row.get('Engine(数据库类型)', ''),
             engine_version=row.get('EngineVersion(数据库版本)', ''),
@@ -434,6 +439,7 @@ def quote_instances(instances: List[RDSInstanceConfig]) -> Optional[str]:
             )
             generator.add_data_row(
                 product_name="RDS",
+                instance_id=instance.db_instance_id,
                 product_desc=product_desc,
                 region=region_name,
                 quantity=1,
@@ -506,6 +512,7 @@ def quote_instances(instances: List[RDSInstanceConfig]) -> Optional[str]:
                 # 保存结果（用于后续选择最贵的一台）
                 all_results.append({
                     "index": len(all_results),
+                    "instance_id": instance.db_instance_id,
                     "product_desc": product_desc,
                     "region_name": region_name,
                     "price_1y_list": result_1y["price_list"],
@@ -533,6 +540,7 @@ def quote_instances(instances: List[RDSInstanceConfig]) -> Optional[str]:
                 print(f"  ❌ {reason}")
                 generator.add_data_row(
                     product_name="RDS",
+                    instance_id=instance.db_instance_id,
                     product_desc=f"引擎：{engine} {engine_version}\n实例规格：{instance.db_instance_class}",
                     region=region_name,
                     quantity=1,
@@ -544,6 +552,7 @@ def quote_instances(instances: List[RDSInstanceConfig]) -> Optional[str]:
             print(f"  ❌ 异常：{str(e)}")
             generator.add_data_row(
                 product_name="RDS",
+                instance_id=instance.db_instance_id,
                 product_desc=f"引擎：{engine} {engine_version}\n实例规格：{instance.db_instance_class}",
                 region=region_name,
                 quantity=1,
@@ -556,7 +565,7 @@ def quote_instances(instances: List[RDSInstanceConfig]) -> Optional[str]:
     six_discount_candidates = [
         (idx, result) for idx, result in enumerate(all_results)
         if result.get("activity_name_1y") and 
-           "新客首购云数据库 RDS 1 年享 6 折优惠，限 1 次，限 1 件" in result["activity_name_1y"]
+           "新客首购云数据库 RDS 1年享6折优惠，限1次，限1件" in result["activity_name_1y"]
     ]
     
     if len(six_discount_candidates) > 0:
@@ -569,7 +578,7 @@ def quote_instances(instances: List[RDSInstanceConfig]) -> Optional[str]:
     for idx, result in enumerate(all_results):
         if not result["is_promotion_applied"]:
             if result.get("activity_name_1y") and \
-               "新客首购云数据库 RDS 1 年享 6 折优惠，限 1 次，限 1 件" in result["activity_name_1y"]:
+               "新客首购云数据库 RDS 1年享6折优惠，限1次，限1件" in result["activity_name_1y"]:
                 # 命中 6 折但未被选中 → 使用 standPrice
                 result["use_stand_price"] = True
                 print(f"  📌 第{idx+1}台命中 6 折但未被选中，使用 standPrice={result.get('stand_price_1y')}")
@@ -599,6 +608,7 @@ def quote_instances(instances: List[RDSInstanceConfig]) -> Optional[str]:
         
         generator.add_data_row(
             product_name="RDS",
+            instance_id=result["instance_id"],
             product_desc=result["product_desc"],
             region=result["region_name"],
             quantity=1,
