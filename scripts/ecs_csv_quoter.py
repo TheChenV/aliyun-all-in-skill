@@ -129,6 +129,9 @@ def parse_csv(csv_path: str) -> List[InstanceConfig]:
         try:
             with open(csv_path, 'r', encoding=encoding) as f:
                 reader = csv.DictReader(f)
+                # 去除 BOM 等不可见字符
+                if reader.fieldnames:
+                    reader.fieldnames = [name.lstrip('\ufeff').strip() for name in reader.fieldnames]
                 rows = list(reader)
                 if rows and '实例规格' in reader.fieldnames:
                     break
@@ -315,7 +318,7 @@ def quote_instances(instances: List[InstanceConfig]) -> Optional[str]:
     client = MCPClient()
     
     # 初始化 Excel 生成器
-    generator = ExcelGenerator()
+    generator = ExcelGenerator(include_instance_id=True)
     
     success_count = 0
     for i, instance in enumerate(instances, 1):
@@ -377,6 +380,7 @@ def quote_instances(instances: List[InstanceConfig]) -> Optional[str]:
             
             generator.add_data_row(
                 product_name="ECS",
+                instance_id=instance.instance_id,
                 product_desc="\n".join(desc_parts),
                 region=region_name,
                 quantity=1,
@@ -423,9 +427,10 @@ def quote_instances(instances: List[InstanceConfig]) -> Optional[str]:
                 product_desc = "\n".join(desc_parts)
                 
                 generator.add_data_row(
-                    product_name="ECS",  # 修复：产品名称固定为 "ECS"
+                    product_name="ECS",
+                    instance_id=instance.instance_id,
                     product_desc=product_desc,
-                    region=region_name,  # 修复：使用地域中文名称
+                    region=region_name,
                     quantity=1,
                     price_1y_list=price_result.price_1y_list,
                     price_1y_discount=price_result.price_1y_discount,
@@ -439,6 +444,7 @@ def quote_instances(instances: List[InstanceConfig]) -> Optional[str]:
                 print(f"  ❌ 查询失败: {price_result.error_message}")
                 generator.add_data_row(
                     product_name="ECS",
+                    instance_id=instance.instance_id,
                     product_desc=f"实例规格：{instance.spec} ({instance.vcpu} vCPU {instance.memory_gb} GiB)",
                     region=region_name,
                     quantity=1,
@@ -449,6 +455,7 @@ def quote_instances(instances: List[InstanceConfig]) -> Optional[str]:
             print(f"  ❌ 异常: {str(e)}")
             generator.add_data_row(
                 product_name="ECS",
+                instance_id=instance.instance_id,
                 product_desc=f"实例规格：{instance.spec} ({instance.vcpu} vCPU {instance.memory_gb} GiB)",
                 region=region_name,
                 quantity=1,

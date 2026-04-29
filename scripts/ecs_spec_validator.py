@@ -205,7 +205,7 @@ class SpecValidator:
             return SpecValidationResult(
                 valid=False,
                 series=series,
-                error_message="该规格族不存在"
+                error_message="该规格"
             )
         
         # 步骤2：是否提供几核几G
@@ -213,7 +213,7 @@ class SpecValidator:
             return SpecValidationResult(
                 valid=False,
                 series=series,
-                error_message="没有提供具体的规格要求"
+                error_message="缺少配置要求"
             )
         
         # 步骤3：查找该规格族下是否有对应配置
@@ -233,7 +233,7 @@ class SpecValidator:
             series=series,
             vcpu=vcpu,
             memory=memory,
-            error_message="该系列规格不存在"
+            error_message="没有提供具体的规格要求"
         )
     
     def _validate_scenario3(self, vcpu: int, memory: float) -> SpecValidationResult:

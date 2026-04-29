@@ -24,6 +24,7 @@ sys.path.insert(0, SCRIPT_DIR)
 from ecs_excel_generator import ExcelGenerator
 from mcp_client import MCPClient
 from ecs_spec_validator import SpecValidator
+from ecs_csv_quoter import is_paid_mirror
 from ecs_constants import REGION_CODE_TO_NAME, REGION_KEYWORDS_TO_CODE
 
 
@@ -46,6 +47,7 @@ class TextInstanceConfig:
     bandwidth_charge_type: str = "PayByBandwidth"
     region: str = DEFAULT_REGION
     region_name: str = DEFAULT_REGION_NAME
+    os_name: str = ""  # 操作系统/镜像名称
     # 原始输入（用于验证失败时保留配置）
     raw_spec_input: str = ""  # 用户输入的规格描述
     raw_series_input: str = ""  # 用户输入的规格族
@@ -132,8 +134,9 @@ def parse_text_instances(text: str, default_region: str = DEFAULT_REGION) -> Lis
     """
     instances = []
     
-    # 提取全局地域（如果有的话）
-    global_region, global_region_name = extract_region(text)
+    # 全局地域使用默认值（杭州），不扫描全文，避免匹配到其他实例的地域关键词
+    global_region = DEFAULT_REGION
+    global_region_name = DEFAULT_REGION_NAME
     
     # 检测是否是多行格式（序号后跟地域名）
     # 多行格式特征：^\d+\.\s*[^\n]+\n\s*-\s*实例规格 或 Markdown 格式 **数字. 地域**
@@ -222,6 +225,16 @@ def parse_text_instances(text: str, default_region: str = DEFAULT_REGION) -> Lis
                         'pl': dpl,
                         'size': disk_size
                     })
+            
+            # 提取镜像/操作系统名称
+            os_match = re.search(r'镜像[：:]?\s*(.+?)(?=\n|\s*[-－—]|\s*系统盘|\s*数据盘|\s*公网带宽|\s*带宽|$)', part, re.IGNORECASE)
+            if os_match:
+                os_text = os_match.group(1).strip()
+                # 清理后缀
+                if os_text.startswith('公共免费') or os_text.startswith('公共'):
+                    config.os_name = ""  # 免费镜像不记录
+                else:
+                    config.os_name = os_text
             
             # 提取带宽（支持 2Mbps / 2M / 固定宽带2M / 带宽2M 等格式）
             bw_match = re.search(r'(?:带宽|宽带|按固定|按流量|Mbps|Mbps)[^\d]*(\d+)\s*[Mm]?(?:[Bb]ps?)?', part, re.IGNORECASE)
@@ -364,6 +377,16 @@ def parse_text_instances(text: str, default_region: str = DEFAULT_REGION) -> Lis
                 else:
                     config.bandwidth_charge_type = "PayByBandwidth"
             
+            # 提取镜像/操作系统名称
+            os_match = re.search(r'镜像[：:]?\s*(.+?)(?=\s*\||\s*系统盘|\s*数据盘|\s*公网带宽|\s*镜像|\s*地域|\s*带宽|$)', part, re.IGNORECASE)
+            if os_match:
+                os_text = os_match.group(1).strip()
+                # 清理公共免费镜像
+                if re.match(r'公共', os_text):
+                    config.os_name = ""
+                else:
+                    config.os_name = os_text
+            
             instances.append(config)
     
     return instances
@@ -392,6 +415,7 @@ def build_product_desc(config: TextInstanceConfig) -> str:
         parts.append(f"配置：{config.vcpu} vCPU {config.memory} GiB")
     
     # 镜像
+    # 免费镜像统一写为"公共免费镜像"
     parts.append("镜像：公共免费镜像")
     
     # 系统盘
@@ -407,6 +431,47 @@ def build_product_desc(config: TextInstanceConfig) -> str:
         parts.append(f"公网带宽：{bw_type} {config.bandwidth}Mbps")
     
     return "\n".join(parts)
+
+
+def build_product_desc_parts(config: TextInstanceConfig, show_actual_os: bool = False) -> list:
+    """
+    构建产品描述列表（方便外部自定义镜像行）
+    
+    Args:
+        config: 实例配置
+        show_actual_os: 是否显示实际镜像名称（用于收费镜像错误行）
+    """
+    parts = []
+    
+    # 实例规格
+    if config.spec and config.vcpu > 0 and config.memory > 0:
+        parts.append(f"实例规格：{config.spec} ({config.vcpu} vCPU {config.memory} GiB)")
+    elif config.spec:
+        parts.append(f"实例规格：{config.spec}")
+    elif config.raw_series_input:
+        parts.append(f"规格族：{config.raw_series_input} ({config.vcpu} vCPU {config.memory} GiB)")
+    elif config.vcpu > 0 and config.memory > 0:
+        parts.append(f"配置：{config.vcpu} vCPU {config.memory} GiB")
+    
+    # 镜像
+    if show_actual_os and config.os_name:
+        parts.append(f"镜像：{config.os_name}")
+    else:
+        parts.append("镜像：公共免费镜像")
+    
+    # 系统盘
+    parts.append(f"系统盘：{config.system_disk_type} {config.system_disk_size}GiB")
+    
+    # 数据盘
+    for i, disk in enumerate(config.data_disks, 1):
+        parts.append(f"数据盘{i}：{disk['type']} {disk['size']}GiB")
+    
+    # 带宽
+    if config.bandwidth > 0:
+        bw_type = "按流量计费" if config.bandwidth_charge_type == "PayByTraffic" else "按固定带宽"
+        parts.append(f"公网带宽：{bw_type} {config.bandwidth}Mbps")
+    
+    return parts
 
 
 def quote_text_instances(
@@ -489,6 +554,23 @@ def quote_text_instances(
         instance.spec = validation_result.spec_code
         instance.vcpu = validation_result.vcpu
         instance.memory = int(validation_result.memory)
+        
+        # 收费镜像检查
+        if instance.os_name and is_paid_mirror(instance.os_name, instance.region):
+            print(f"  ⚠️ 收费镜像，跳过报价")
+            # 收费镜像保留实际镜像名称
+            parts = build_product_desc_parts(instance, show_actual_os=True)
+            product_desc = "\n".join(parts)
+            generator.add_data_row(
+                product_name="ECS",
+                product_desc=product_desc,
+                region=region_name,
+                quantity=1,
+                remark="涉及收费镜像，请人工确认",
+                is_error=True
+            )
+            error_count += 1
+            continue
         
         # 解析系统盘 MCP 参数
         _, sys_category, sys_pl = parse_disk_type(instance.system_disk_type)
