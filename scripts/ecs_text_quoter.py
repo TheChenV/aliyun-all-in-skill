@@ -17,9 +17,12 @@ import argparse
 from typing import List, Optional
 from dataclasses import dataclass, field
 
-# 添加脚本目录到路径
+# 从 config.json 读取输出目录
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
+from skill_config import setup_output_dir
+
+setup_output_dir()
 
 from ecs_excel_generator import ExcelGenerator
 from mcp_client import MCPClient

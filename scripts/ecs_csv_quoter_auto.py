@@ -14,8 +14,10 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CSV_QUOTER = os.path.join(SCRIPT_DIR, "ecs_csv_quoter.py")
 VENV_PYTHON = os.path.join(SCRIPT_DIR, "venv", "bin", "python")
 
-# 输出目录
-OUTPUT_DIR = "/root/.openclaw/workspace/download/"
+# 从 config.json 读取输出目录
+from skill_config import setup_output_dir
+
+OUTPUT_DIR = setup_output_dir()
 
 
 def get_latest_excel():

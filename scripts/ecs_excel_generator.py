@@ -41,8 +41,8 @@ class ExcelGenerator:
         bottom=Side(style='thin')
     )
     
-    # 输出目录
-    OUTPUT_DIR = "/root/.openclaw/workspace/download/"
+    # 输出目录（优先读取环境变量，由入口脚本从 config.json 设置）
+    OUTPUT_DIR = os.environ.get("ALIYUN_SKILL_OUTPUT_DIR", "/root/.openclaw/workspace/download/")
     
     def __init__(self, customer_name: str = "", include_instance_id: bool = False):
         """

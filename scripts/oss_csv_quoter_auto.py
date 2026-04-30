@@ -27,8 +27,10 @@ sys.path.insert(0, SCRIPT_DIR)
 
 from ecs_constants import OSS_REGION_NAMES, STORAGE_CLASS_NAMES, REDUNDANCY_TYPE_NAMES
 
-# 输出目录
-OUTPUT_DIR = "/root/.openclaw/workspace/download/"
+# 从 config.json 读取输出目录
+from skill_config import setup_output_dir
+
+OUTPUT_DIR = setup_output_dir()
 
 # CSV 列名映射（阿里云控制台导出格式）
 CSV_COLUMNS = {

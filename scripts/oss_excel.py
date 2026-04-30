@@ -175,8 +175,8 @@ class OSSExcelGenerator:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"OSS 使用统计_{timestamp}.xlsx"
         
-        # 输出目录
-        output_dir = "/root/.openclaw/workspace/download/"
+        # 输出目录（优先读取环境变量，由入口脚本从 config.json 设置）
+        output_dir = os.environ.get("ALIYUN_SKILL_OUTPUT_DIR", "/root/.openclaw/workspace/download/")
         os.makedirs(output_dir, exist_ok=True)
         
         file_path = os.path.join(output_dir, filename)

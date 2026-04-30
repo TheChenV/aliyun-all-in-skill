@@ -156,8 +156,40 @@ venv/bin/python3 scripts/ecs_text_quoter.py '配置内容' --region cn-hangzhou
 |------|------|------|
 | 1 | 调用脚本 | 根据场景选择对应脚本 |
 | 2 | 输出路径 | 脚本输出 `FILE_PATH:xxx.xlsx`，AI 读取此路径 |
-| 3 | 发送文件 | AI 使用 `openclaw message send --channel <当前对话 channel> --target <当前对话 target> --media <文件路径>` 发送到当前对话 |
+| 3 | 发送文件 | **必须**通过 `exec` 工具执行 CLI 命令发送（见下方「文件发送⚠️」） |
 | 4 | 清理文件 | AI 发送成功后删除本地 Excel 文件 |
+
+## 文件发送 ⚠️
+
+### ✅ 正确方式（唯一正确）
+
+**必须通过 `exec` 工具执行 `openclaw message send` CLI 命令：**
+
+```bash
+openclaw message send --channel feishu --target "user:<用户ID>" --media "/root/.openclaw/workspace/download/阿里云资源清单XXXXXX.xlsx"
+```
+
+完整流程示例：
+```bash
+# 1. 生成报价单
+venv/bin/python3 scripts/rds_csv_quoter_auto.py /path/to/file.csv
+# 输出 FILE_PATH:/root/.openclaw/workspace/download/阿里云资源清单260430-093701.xlsx
+
+# 2. 通过 CLI 发送
+openclaw message send --channel feishu --target "user:ou_xxxxx" --media "/root/.openclaw/workspace/download/阿里云资源清单260430-093701.xlsx"
+
+# 3. 确认发送成功后清理
+rm "/root/.openclaw/workspace/download/阿里云资源清单260430-093701.xlsx"
+```
+
+### ❌ 错误方式（严禁使用）
+
+**禁止在回复文本中使用 `MEDIA:` 内联指令发送文件：**
+```
+MEDIA:/root/.openclaw/workspace/download/xxx.xlsx  ← 这是错的！
+```
+
+`MEDIA:` 指令仅供 **Web UI 渲染** 使用，**不能用于飞书/Telegram/Discord 等聊天渠道的文件发送**。在所有聊天渠道中发送生成的文件（Excel、PDF 等），都必须使用 `openclaw message send --media` CLI 命令。
 
 
 
@@ -208,6 +240,23 @@ aliyun-all-in-skill/
 ```
 
 首次使用需要 OAuth 授权。
+
+### 输出目录配置
+
+所有场景生成的文件（ECS 报价单、RDS 报价单、OSS 统计报告等）统一输出到同一目录，通过 `config.json` 的 `output_dir` 字段配置：
+
+```json
+{
+  "output_dir": "/root/.openclaw/workspace/download/",
+  "mcp": { ... },
+  ...
+}
+```
+
+- **默认值**：`/root/.openclaw/workspace/download/`
+- 用户可自行修改为其他路径，脚本会自动创建目录（`os.makedirs(exist_ok=True)`）
+- 入口脚本读取该配置后通过环境变量 `ALIYUN_SKILL_OUTPUT_DIR` 传递给生成器类
+- `FILE_PATH:` 输出和 `openclaw message send --media` 均基于此目录
 
 ### Python 依赖
 

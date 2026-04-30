@@ -18,8 +18,10 @@ OSS_STAT = os.path.join(SCRIPT_DIR, "oss_stat.py")
 VENV_PYTHON = os.path.join(SCRIPT_DIR, "venv", "bin", "python3")
 PYTHON = VENV_PYTHON if os.path.exists(VENV_PYTHON) else "python3"
 
-# 输出目录
-OUTPUT_DIR = "/root/.openclaw/workspace/download/"
+# 从 config.json 读取输出目录
+from skill_config import setup_output_dir
+
+OUTPUT_DIR = setup_output_dir()
 
 
 def get_latest_excel():
