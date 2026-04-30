@@ -1,4 +1,5 @@
 {
+  "output_dir": "/root/.openclaw/workspace/download/",
   "mcp": {
     "endpoint": "YOUR_MCP_ENDPOINT_HERE"
   },
@@ -11,5 +12,5 @@
     "access_token": "YOUR_ACCESS_TOKEN_HERE",
     "refresh_token": "YOUR_REFRESH_TOKEN_HERE",
     "expires_at": 0
-  },
+  }
 }

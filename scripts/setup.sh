@@ -173,109 +173,20 @@ get_app_id() {
     print_success "应用 ID 已记录"
 }
 
-# 检测飞书账号
-detect_feishu_accounts() {
-    print_step 6 "检测飞书账号"
-
-    # 尝试查找 OpenClaw 配置文件
-    OPENCLAW_CONFIG=""
-    for candidate in "$HOME/.openclaw/openclaw.json" "$HOME/.openclaw/config.json"; do
-        if [ -f "$candidate" ]; then
-            OPENCLAW_CONFIG="$candidate"
-            break
-        fi
-    done
-
-    FEISHU_ACCOUNTS=()
-
-    if [ -n "$OPENCLAW_CONFIG" ]; then
-        # 尝试用 jq 提取 feishu accounts（排除 "default"）
-        if command -v jq &> /dev/null; then
-            FEISHU_ACCOUNTS=($(jq -r '.channels.feishu.accounts // {} | keys[] | select(. != "default")' "$OPENCLAW_CONFIG" 2>/dev/null || true))
-        fi
-
-        if [ ${#FEISHU_ACCOUNTS[@]} -gt 0 ]; then
-            print_success "检测到 ${#FEISHU_ACCOUNTS[@]} 个飞书账号"
-            for acc in "${FEISHU_ACCOUNTS[@]}"; do
-                print_info "  - $acc"
-            done
-            return 0
-        fi
-    fi
-
-    print_info "未检测到 OpenClaw 飞书账号配置，后续可手动输入"
-    return 0
-}
-
-# 选择飞书账号
-select_feishu_account() {
-    print_step 7 "配置飞书账号（用于发送报价单）"
-
-    if [ ${#FEISHU_ACCOUNTS[@]} -gt 0 ]; then
-        echo ""
-        echo -e "${YELLOW}检测到以下飞书账号，请选择或手动输入：${NC}"
-        echo ""
-
-        for i in "${!FEISHU_ACCOUNTS[@]}"; do
-            echo -e "  ${GREEN}$((i + 1))${NC}. ${FEISHU_ACCOUNTS[$i]}"
-        done
-        echo -e "  ${YELLOW}0${NC}. 手动输入"
-        echo ""
-
-        echo -n "请选择 (1-${#FEISHU_ACCOUNTS[@]}) 或 0 手动输入: "
-        read FEISHU_CHOICE
-
-        if [ "$FEISHU_CHOICE" -ge 1 ] 2>/dev/null && [ "$FEISHU_CHOICE" -le "${#FEISHU_ACCOUNTS[@]}" ] 2>/dev/null; then
-            FEISHU_ACCOUNT="${FEISHU_ACCOUNTS[$((FEISHU_CHOICE - 1))]}"
-            print_success "已选择: $FEISHU_ACCOUNT"
-        else
-            echo -n "请输入飞书账号名称: "
-            read FEISHU_ACCOUNT
-            if [ -z "$FEISHU_ACCOUNT" ]; then
-                print_info "未填写，将不绑定飞书账号（使用 OpenClaw 默认账号）"
-                FEISHU_ACCOUNT=""
-            else
-                print_success "已记录: $FEISHU_ACCOUNT"
-            fi
-        fi
-    else
-        echo ""
-        echo -e "${YELLOW}未检测到飞书账号配置。${NC}"
-        echo "脚本发送文件时将使用 OpenClaw 默认飞书账号。"
-        echo "如需指定账号，可在 config.json 中手动添加 feishu_account 字段。"
-        echo ""
-        echo -n "是否手动输入飞书账号名称？(y/N): "
-        read FEISHU_INPUT
-
-        if [[ "$FEISHU_INPUT" =~ ^[Yy] ]]; then
-            echo -n "请输入飞书账号名称: "
-            read FEISHU_ACCOUNT
-            if [ -z "$FEISHU_ACCOUNT" ]; then
-                print_info "未填写，跳过"
-                FEISHU_ACCOUNT=""
-            else
-                print_success "已记录: $FEISHU_ACCOUNT"
-            fi
-        else
-            print_info "跳过，使用 OpenClaw 默认飞书账号"
-            FEISHU_ACCOUNT=""
-        fi
-    fi
-}
-
 # 生成 config.json
 generate_config() {
-    print_step 8 "生成配置文件"
+    print_step 6 "生成配置文件"
 
     # 确保 config 目录存在
     mkdir -p "$CONFIG_DIR"
 
     # 使用 Python 生成 JSON，避免 shell 转义问题
-    export MCP_ENDPOINT APP_ID CONFIG_DIR FEISHU_ACCOUNT
+    export MCP_ENDPOINT APP_ID CONFIG_DIR
     python3 << 'PYEOF'
 import json, os
 
 config = {
+    "output_dir": "/root/.openclaw/workspace/download/",
     "mcp": {"endpoint": os.environ["MCP_ENDPOINT"]},
     "oauth": {
         "app_name": "alibabacloud-api-mcp-server@app.1263926834388048.onaliyun.com",
@@ -289,10 +200,6 @@ config = {
     }
 }
 
-feishu_account = os.environ.get("FEISHU_ACCOUNT", "")
-if feishu_account:
-    config["feishu_account"] = feishu_account
-
 config_dir = os.environ["CONFIG_DIR"]
 with open(os.path.join(config_dir, "config.json"), "w", encoding="utf-8") as f:
     json.dump(config, f, indent=2, ensure_ascii=False)
@@ -304,7 +211,7 @@ PYEOF
 
 # 生成 oauth_local_server.py
 generate_oauth_script() {
-    print_step 9 "生成 OAuth 授权脚本"
+    print_step 7 "生成 OAuth 授权脚本"
 
     # 替换模板中的参数
     sed -e "s|YOUR_APP_ID_HERE|$APP_ID|g" \
@@ -354,17 +261,17 @@ show_next_steps() {
     echo -e "${CYAN}  ./scripts/mcp_verify.sh${NC}"
     echo ""
 
-    if [ -n "$FEISHU_ACCOUNT" ]; then
-        echo -e "${GREEN}[已配置] 飞书账号${NC}"
-        echo "  报价单将自动发送到飞书账号："
-        echo -e "${CYAN}  $FEISHU_ACCOUNT${NC}"
-        echo ""
-    else
-        echo -e "${GREEN}[未配置] 飞书账号${NC}"
-        echo "  发送报价单时将使用 OpenClaw 默认飞书账号。"
-        echo "  如需指定账号，可编辑 config.json 添加 feishu_account 字段。"
-        echo ""
-    fi
+    echo -e "${GREEN}[提示] 文件发送方式${NC}"
+    echo "  生成的文件（Excel 报价单/统计报告）通过以下命令发送到当前对话："
+    echo -e "${CYAN}  openclaw message send --channel <channel> --target <target> --media <文件路径>${NC}"
+    echo "  无需额外配置飞书账号。"
+    echo ""
+
+    echo -e "${GREEN}[提示] 输出目录${NC}"
+    echo "  所有生成的文件默认输出到："
+    echo -e "${CYAN}  /root/.openclaw/workspace/download/${NC}"
+    echo "  可在 config.json 中修改 output_dir 字段自定义路径。"
+    echo ""
 
     echo -e "${YELLOW}========================================${NC}"
     echo ""
@@ -379,8 +286,6 @@ main() {
     install_dependencies
     get_mcp_endpoint
     get_app_id
-    detect_feishu_accounts
-    select_feishu_account
     generate_config
     generate_oauth_script
 
