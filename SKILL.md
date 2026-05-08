@@ -156,40 +156,56 @@ venv/bin/python3 scripts/ecs_text_quoter.py '配置内容' --region cn-hangzhou
 |------|------|------|
 | 1 | 调用脚本 | 根据场景选择对应脚本 |
 | 2 | 输出路径 | 脚本输出 `FILE_PATH:xxx.xlsx`，AI 读取此路径 |
-| 3 | 发送文件 | **必须**通过 `exec` 工具执行 CLI 命令发送（见下方「文件发送⚠️」） |
+| 3 | 发送文件 | 钉钉渠道用 `MEDIA:` 指令，其他渠道用 `openclaw message send` CLI（见下方「文件发送⚠️」） |
 | 4 | 清理文件 | AI 发送成功后删除本地 Excel 文件 |
 
 ## 文件发送 ⚠️
 
-### ✅ 正确方式（唯一正确）
+AI 需根据当前会话渠道（通过 inbound context 中的 `channel` 字段判断）选择对应发送方式：
 
-**必须通过 `exec` 工具执行 `openclaw message send` CLI 命令：**
+| 渠道 | `channel` 值 | 发送方式 |
+|------|-------------|----------|
+| 钉钉 | `dingtalk-connector` | `MEDIA:` 内联指令 |
+| 其他渠道 | feishu / telegram / discord 等 | `openclaw message send` CLI |
 
-```bash
-openclaw message send --channel feishu --target "user:<用户ID>" --media "/root/.openclaw/workspace/download/阿里云资源清单XXXXXX.xlsx"
+### 方式一：钉钉渠道 — `MEDIA:` 内联指令
+
+在回复中直接写入文件路径，钉钉连接器会自动上传并发送：
+
+```
+MEDIA:/root/.openclaw/workspace/download/阿里云资源清单260508-112945.xlsx
 ```
 
-完整流程示例：
+**注意：**
+- 路径必须是绝对路径
+- 钉钉连接器支持分块上传，大文件也能正常发送
+- 发送后需清理本地文件
+
+### 方式二：其他渠道 — CLI 命令
+
+通过 `exec` 工具执行：
+
+```bash
+openclaw message send --channel feishu --target "user:ou_xxxxx" \
+  --media "/root/.openclaw/workspace/download/阿里云资源清单260508-112945.xlsx"
+```
+
+根据实际渠道替换 `--channel` 参数（如 `telegram` / `discord` / `feishu` 等）。
+
+### 完整流程示例
+
 ```bash
 # 1. 生成报价单
-venv/bin/python3 scripts/rds_csv_quoter_auto.py /path/to/file.csv
-# 输出 FILE_PATH:/root/.openclaw/workspace/download/阿里云资源清单260430-093701.xlsx
+venv/bin/python3 scripts/ecs_csv_quoter_auto.py /path/to/file.csv
+# 输出 FILE_PATH:/root/.openclaw/workspace/download/阿里云资源清单260508-112945.xlsx
 
-# 2. 通过 CLI 发送
-openclaw message send --channel feishu --target "user:ou_xxxxx" --media "/root/.openclaw/workspace/download/阿里云资源清单260430-093701.xlsx"
+# 2. 发送文件
+# 钉钉渠道：在回复中写 MEDIA:/root/.openclaw/workspace/download/阿里云资源清单260508-112945.xlsx
+# 其他渠道：openclaw message send --channel feishu --target "user:xxx" --media "/path/to/file.xlsx"
 
-# 3. 确认发送成功后清理
-rm "/root/.openclaw/workspace/download/阿里云资源清单260430-093701.xlsx"
+# 3. 发送成功后清理
+rm "/root/.openclaw/workspace/download/阿里云资源清单260508-112945.xlsx"
 ```
-
-### ❌ 错误方式（严禁使用）
-
-**禁止在回复文本中使用 `MEDIA:` 内联指令发送文件：**
-```
-MEDIA:/root/.openclaw/workspace/download/xxx.xlsx  ← 这是错的！
-```
-
-`MEDIA:` 指令仅供 **Web UI 渲染** 使用，**不能用于飞书/Telegram/Discord 等聊天渠道的文件发送**。在所有聊天渠道中发送生成的文件（Excel、PDF 等），都必须使用 `openclaw message send --media` CLI 命令。
 
 
 
