@@ -35,9 +35,8 @@ CONFIG_DIR="$SKILL_DIR/config"
 
 # 全局步骤计数器
 STEP=0
-next_step() {
+step() {
     STEP=$((STEP + 1))
-    echo "$STEP"
 }
 
 # 打印函数
@@ -93,7 +92,7 @@ confirm_action() {
 # ==================== 步骤 1：检查 Python 环境 ====================
 
 check_python() {
-    print_step "$(next_step)" "检查 Python 环境"
+    step; print_step "$STEP" "检查 Python 环境"
 
     # 检查 python3 是否存在
     if ! command -v python3 &> /dev/null; then
@@ -147,16 +146,17 @@ _auto_install_python() {
 # ==================== 步骤 2：确保 venv 模块可用 ====================
 
 ensure_venv_module() {
-    print_step "$(next_step)" "检查 venv 模块"
+    step; print_step "$STEP" "检查 venv 模块"
 
-    # 快速测试 venv 是否可用
-    if python3 -m venv --help &> /dev/null; then
+    # 检测 ensurepip 模块（venv 创建虚拟环境时需要它来安装 pip）
+    # 注意：python3 -m venv --help 不会触发 ensurepip，所以不能作为检测依据
+    if python3 -c "import ensurepip" &> /dev/null; then
         print_success "venv 模块已就绪"
         return 0
     fi
 
     # venv 不可用，需要安装
-    print_warn "venv 模块不可用（缺少 python3-venv 包）"
+    print_warn "venv 模块不可用（缺少 python3-venv / ensurepip 包）"
 
     # 检测包管理器
     if command -v apt-get &> /dev/null; then
@@ -215,7 +215,7 @@ ensure_venv_module() {
 # ==================== 步骤 3：创建虚拟环境 ====================
 
 create_venv() {
-    print_step "$(next_step)" "创建 Python 虚拟环境"
+    step; print_step "$STEP" "创建 Python 虚拟环境"
 
     if [ -d "$SCRIPT_DIR/venv" ]; then
         # 验证现有 venv 是否可用
@@ -245,7 +245,7 @@ create_venv() {
 # ==================== 步骤 4：安装依赖 ====================
 
 install_dependencies() {
-    print_step "$(next_step)" "安装 Python 依赖"
+    step; print_step "$STEP" "安装 Python 依赖"
 
     cd "$SCRIPT_DIR"
 
@@ -263,7 +263,7 @@ install_dependencies() {
 # ==================== 步骤 5：配置 MCP Endpoint ====================
 
 get_mcp_endpoint() {
-    print_step "$(next_step)" "配置 MCP Endpoint"
+    step; print_step "$STEP" "配置 MCP Endpoint"
 
     print_separator
     echo -e "${YELLOW}如何获取 MCP Endpoint：${NC}"
@@ -301,7 +301,7 @@ get_mcp_endpoint() {
 # ==================== 步骤 6：配置应用 ID ====================
 
 get_app_id() {
-    print_step "$(next_step)" "配置应用 ID (app_id)"
+    step; print_step "$STEP" "配置应用 ID (app_id)"
 
     print_separator
     echo -e "${YELLOW}如何获取应用 ID (app_id)：${NC}"
@@ -341,7 +341,7 @@ get_app_id() {
 # ==================== 步骤 7：生成配置文件 ====================
 
 generate_config() {
-    print_step "$(next_step)" "生成配置文件"
+    step; print_step "$STEP" "生成配置文件"
 
     # 确保 config 目录存在
     mkdir -p "$CONFIG_DIR"
@@ -378,7 +378,7 @@ PYEOF
 # ==================== 步骤 8：生成 OAuth 脚本 ====================
 
 generate_oauth_script() {
-    print_step "$(next_step)" "生成 OAuth 授权脚本"
+    step; print_step "$STEP" "生成 OAuth 授权脚本"
 
     # 替换模板中的参数
     sed -e "s|YOUR_APP_ID_HERE|$APP_ID|g" \
