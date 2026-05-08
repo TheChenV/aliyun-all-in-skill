@@ -29,7 +29,7 @@ def get_latest_excel():
     if not os.path.exists(OUTPUT_DIR):
         return None
     
-    files = [f for f in os.listdir(OUTPUT_DIR) if f.startswith("OSS 使用统计") and f.endswith(".xlsx")]
+    files = [f for f in os.listdir(OUTPUT_DIR) if f.startswith("OSS使用统计") and f.endswith(".xlsx")]
     if not files:
         return None
     
