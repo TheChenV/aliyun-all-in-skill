@@ -213,6 +213,18 @@ def parse_text_instances(text: str, default_region: str = DEFAULT_REGION) -> Lis
                     config.system_disk_size = int(size_match.group(1))
                 dtype, dcategory, dpl = parse_disk_type(disk_text)
                 config.system_disk_type = dtype
+            else:
+                # 回退：查找独立的磁盘大小（排除 CPU 核数和内存）
+                all_gb = re.findall(r'(\d+)\s*[Gg][iI]?[bB]?', part)
+                cpu_vals = re.findall(r'(\d+)\s*(?:核|vCPU)', part)
+                # 排除 CPU 核数和内存值（config.memory 已在前面解析）
+                exclude = set(cpu_vals)
+                if config.memory > 0:
+                    exclude.add(str(config.memory))
+                for val in all_gb:
+                    if val not in exclude:
+                        config.system_disk_size = int(val)
+                        break
             
             # 提取数据盘
             data_disk_match = re.search(r'数据盘[：:]?\s*(.+?)(?=\n|\s*[-－—]|\s*公网带宽|\s*带宽|$)', part, re.IGNORECASE)
@@ -337,6 +349,18 @@ def parse_text_instances(text: str, default_region: str = DEFAULT_REGION) -> Lis
                 # 提取类型
                 dtype, dcategory, dpl = parse_disk_type(disk_text)
                 config.system_disk_type = dtype
+            else:
+                # 回退：查找独立的磁盘大小（排除 CPU 核数和内存）
+                all_gb = re.findall(r'(\d+)\s*[Gg][iI]?[bB]?', part)
+                cpu_vals = re.findall(r'(\d+)\s*(?:核|vCPU)', part)
+                # 排除 CPU 核数和内存值（config.memory 已在前面解析）
+                exclude = set(cpu_vals)
+                if config.memory > 0:
+                    exclude.add(str(config.memory))
+                for val in all_gb:
+                    if val not in exclude:
+                        config.system_disk_size = int(val)
+                        break
             
             # 提取数据盘（支持多个）
             data_disk_pattern = r'数据盘\s*(?:\d+)?\s*[：:]?\s*([\s\S]+?)(?=\s*\||\s*数据盘\d*\s*[：:]|\s*公网带宽|\s*镜像|\s*地域|\s*带宽|$)'

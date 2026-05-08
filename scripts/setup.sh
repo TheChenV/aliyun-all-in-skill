@@ -5,6 +5,7 @@
 # 交互式引导用户完成环境配置
 #
 # 使用方式：在项目根目录执行 bash ./scripts/setup.sh
+# 可选参数：--no-confirm  跳过确认，全自动安装（适用于 CI/CD）
 #
 
 set -e
@@ -17,10 +18,27 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
+# 解析参数
+NO_CONFIRM=false
+for arg in "$@"; do
+    case "$arg" in
+        --no-confirm)
+            NO_CONFIRM=true
+            ;;
+    esac
+done
+
 # 获取脚本所在目录（支持从项目根目录执行 bash ./scripts/setup.sh）
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(dirname "$SCRIPT_DIR")"
 CONFIG_DIR="$SKILL_DIR/config"
+
+# 全局步骤计数器
+STEP=0
+next_step() {
+    STEP=$((STEP + 1))
+    echo "$STEP"
+}
 
 # 打印函数
 print_header() {
@@ -43,6 +61,10 @@ print_success() {
     echo -e "${GREEN}  ✓ $1${NC}"
 }
 
+print_warn() {
+    echo -e "${YELLOW}  ⚠ $1${NC}"
+}
+
 print_error() {
     echo -e "${RED}  ✗ $1${NC}"
 }
@@ -53,42 +75,183 @@ print_separator() {
     echo ""
 }
 
-# 检查 Python 环境
+# 确认提示（支持 --no-confirm 跳过）
+confirm_action() {
+    local prompt="$1"
+    if $NO_CONFIRM; then
+        print_info "[非交互模式] 自动确认: $prompt"
+        return 0
+    fi
+    echo -n "$prompt [Y/n]: "
+    read -r CONFIRM
+    if [[ "$CONFIRM" =~ ^[Nn]$ ]]; then
+        return 1
+    fi
+    return 0
+}
+
+# ==================== 步骤 1：检查 Python 环境 ====================
+
 check_python() {
-    print_step 1 "检查 Python 环境"
+    print_step "$(next_step)" "检查 Python 环境"
+
+    # 检查 python3 是否存在
+    if ! command -v python3 &> /dev/null; then
+        print_error "未找到 python3 命令"
+        _auto_install_python
+        return $?
+    fi
+
+    # 检查版本 ≥ 3.10
+    PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}')
+    PYTHON_MAJOR=$(echo "$PYTHON_VERSION" | cut -d. -f1)
+    PYTHON_MINOR=$(echo "$PYTHON_VERSION" | cut -d. -f2)
+
+    if [ "$PYTHON_MAJOR" -lt 3 ] || { [ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 10 ]; }; then
+        print_error "Python 版本过低: $PYTHON_VERSION（需要 ≥ 3.10）"
+        _auto_install_python
+        return $?
+    fi
+
+    print_success "Python 版本: $PYTHON_VERSION"
+    return 0
+}
+
+# 自动安装 Python（辅助函数）
+_auto_install_python() {
+    print_info "尝试自动安装 Python 3..."
+
+    if command -v apt-get &> /dev/null; then
+        _pkg_install "apt-get" "python3"
+    elif command -v yum &> /dev/null; then
+        _pkg_install "yum" "python3"
+    elif command -v dnf &> /dev/null; then
+        _pkg_install "dnf" "python3"
+    elif command -v apk &> /dev/null; then
+        _pkg_install "apk" "python3"
+    else
+        print_error "不支持的包管理器，请手动安装 Python 3.10+"
+        exit 1
+    fi
 
     if command -v python3 &> /dev/null; then
         PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}')
-        print_success "Python 版本: $PYTHON_VERSION"
+        print_success "Python 安装成功: $PYTHON_VERSION"
         return 0
     else
-        print_error "未找到 python3，请先安装 Python 3.10+"
+        print_error "Python 安装失败，请手动安装"
         exit 1
     fi
 }
 
-# 创建虚拟环境
+# ==================== 步骤 2：确保 venv 模块可用 ====================
+
+ensure_venv_module() {
+    print_step "$(next_step)" "检查 venv 模块"
+
+    # 快速测试 venv 是否可用
+    if python3 -m venv --help &> /dev/null; then
+        print_success "venv 模块已就绪"
+        return 0
+    fi
+
+    # venv 不可用，需要安装
+    print_warn "venv 模块不可用（缺少 python3-venv 包）"
+
+    # 检测包管理器
+    if command -v apt-get &> /dev/null; then
+        PKG_MANAGER="apt"
+        PKG_NAME="python3-venv"
+        INSTALL_CMD="apt-get install -y $PKG_NAME"
+    elif command -v yum &> /dev/null; then
+        PKG_MANAGER="yum"
+        PKG_NAME="python3-devel"
+        INSTALL_CMD="yum install -y $PKG_NAME"
+    elif command -v dnf &> /dev/null; then
+        PKG_MANAGER="dnf"
+        PKG_NAME="python3-venv"
+        INSTALL_CMD="dnf install -y $PKG_NAME"
+    elif command -v apk &> /dev/null; then
+        PKG_MANAGER="apk"
+        PKG_NAME="py3-virtualenv"
+        INSTALL_CMD="apk add $PKG_NAME"
+    else
+        print_error "不支持的包管理器，请手动安装 venv 模块"
+        print_info "  Debian/Ubuntu: sudo apt install python3-venv"
+        print_info "  RHEL/CentOS:   sudo yum install python3-devel"
+        print_info "  Fedora:        sudo dnf install python3-venv"
+        print_info "  Alpine:        apk add py3-virtualenv"
+        exit 1
+    fi
+
+    print_info "检测到系统: $PKG_MANAGER"
+    print_info "需要安装: $PKG_NAME"
+
+    if ! confirm_action "是否自动安装 $PKG_NAME？"; then
+        print_error "用户取消安装"
+        exit 1
+    fi
+
+    print_info "正在安装 $PKG_NAME ..."
+    if $ELEVATED_INSTALL; then
+        $INSTALL_CMD 2>&1
+    else
+        sudo $INSTALL_CMD 2>&1 || {
+            print_warn "sudo 安装失败，尝试直接运行（当前可能已是 root）..."
+            $INSTALL_CMD 2>&1
+        }
+    fi
+
+    # 验证安装结果
+    if python3 -m venv --help &> /dev/null; then
+        print_success "$PKG_NAME 安装成功"
+    else
+        print_error "venv 模块安装失败，请手动执行："
+        print_info "  $INSTALL_CMD"
+        exit 1
+    fi
+}
+
+# ==================== 步骤 3：创建虚拟环境 ====================
+
 create_venv() {
-    print_step 2 "创建 Python 虚拟环境"
+    print_step "$(next_step)" "创建 Python 虚拟环境"
 
     if [ -d "$SCRIPT_DIR/venv" ]; then
-        print_info "虚拟环境已存在，跳过创建"
-        return 0
+        # 验证现有 venv 是否可用
+        if "$SCRIPT_DIR/venv/bin/python3" -m pip --version &> /dev/null; then
+            print_info "虚拟环境已存在且可用，跳过创建"
+            return 0
+        else
+            print_warn "虚拟环境已存在但不可用，将重新创建..."
+            rm -rf "$SCRIPT_DIR/venv"
+        fi
     fi
 
     cd "$SCRIPT_DIR"
     python3 -m venv venv
     print_success "虚拟环境创建完成"
+
+    # 验证 pip 可用
+    if "$SCRIPT_DIR/venv/bin/python3" -m pip --version &> /dev/null; then
+        PIP_VERSION=$("$SCRIPT_DIR/venv/bin/pip3" --version 2>&1 | awk '{print $2}')
+        print_success "pip 版本: $PIP_VERSION"
+    else
+        print_error "pip 不可用，虚拟环境创建可能不完整"
+        exit 1
+    fi
 }
 
-# 安装依赖
+# ==================== 步骤 4：安装依赖 ====================
+
 install_dependencies() {
-    print_step 3 "安装 Python 依赖"
+    print_step "$(next_step)" "安装 Python 依赖"
 
     cd "$SCRIPT_DIR"
 
     if [ -f "requirements.txt" ]; then
         source venv/bin/activate
+        pip install --upgrade pip -q 2>&1
         pip install -r requirements.txt -q
         print_success "依赖安装完成"
     else
@@ -97,9 +260,10 @@ install_dependencies() {
     fi
 }
 
-# 获取 MCP Endpoint
+# ==================== 步骤 5：配置 MCP Endpoint ====================
+
 get_mcp_endpoint() {
-    print_step 4 "配置 MCP Endpoint"
+    print_step "$(next_step)" "配置 MCP Endpoint"
 
     print_separator
     echo -e "${YELLOW}如何获取 MCP Endpoint：${NC}"
@@ -134,9 +298,10 @@ get_mcp_endpoint() {
     print_success "MCP Endpoint 已记录"
 }
 
-# 获取 app_id
+# ==================== 步骤 6：配置应用 ID ====================
+
 get_app_id() {
-    print_step 5 "配置应用 ID (app_id)"
+    print_step "$(next_step)" "配置应用 ID (app_id)"
 
     print_separator
     echo -e "${YELLOW}如何获取应用 ID (app_id)：${NC}"
@@ -173,9 +338,10 @@ get_app_id() {
     print_success "应用 ID 已记录"
 }
 
-# 生成 config.json
+# ==================== 步骤 7：生成配置文件 ====================
+
 generate_config() {
-    print_step 6 "生成配置文件"
+    print_step "$(next_step)" "生成配置文件"
 
     # 确保 config 目录存在
     mkdir -p "$CONFIG_DIR"
@@ -209,9 +375,10 @@ PYEOF
     print_success "config.json 已生成: config/config.json"
 }
 
-# 生成 oauth_local_server.py
+# ==================== 步骤 8：生成 OAuth 脚本 ====================
+
 generate_oauth_script() {
-    print_step 7 "生成 OAuth 授权脚本"
+    print_step "$(next_step)" "生成 OAuth 授权脚本"
 
     # 替换模板中的参数
     sed -e "s|YOUR_APP_ID_HERE|$APP_ID|g" \
@@ -221,11 +388,11 @@ generate_oauth_script() {
     print_success "oauth_local_server.py 已生成: scripts/oauth_local_server.py"
 }
 
-# 输出后续步骤
+# ==================== 后续步骤提示 ====================
+
 show_next_steps() {
     print_header "初始化完成 - 请继续完成以下步骤"
 
-    # 获取绝对路径
     OAUTH_SCRIPT_PATH="$SCRIPT_DIR/oauth_local_server.py"
 
     echo -e "${YELLOW}========================================${NC}"
@@ -234,12 +401,12 @@ show_next_steps() {
     echo ""
 
     echo -e "${GREEN}[步骤 1] 下载 OAuth 脚本到本地${NC}"
-    echo "  将以下文件下载到您的本地电脑（有浏览器的机器，如 Windows/MacOS）："
+    echo "  将以下文件下载到您的本地电脑（有浏览器的机器）："
     echo -e "${CYAN}  $OAUTH_SCRIPT_PATH${NC}"
     echo ""
 
     echo -e "${GREEN}[步骤 2] 本地运行 OAuth 脚本${NC}"
-    echo "  在您的本地操作系统（登录了阿里云管理员账户的 Windows/MacOS 等）上运行："
+    echo "  在本地操作系统上运行（需已登录阿里云管理员账号）："
     echo -e "${CYAN}  python oauth_local_server.py${NC}"
     echo ""
 
@@ -257,12 +424,12 @@ show_next_steps() {
     echo ""
 
     echo -e "${GREEN}[步骤 5] 校验 MCP 连通性${NC}"
-    echo "  Token 填写完成后，在服务器上运行以下命令校验："
+    echo "  Token 填写完成后，运行以下命令校验："
     echo -e "${CYAN}  ./scripts/mcp_verify.sh${NC}"
     echo ""
 
     echo -e "${GREEN}[提示] 文件发送方式${NC}"
-    echo "  生成的文件（Excel 报价单/统计报告）通过以下命令发送到当前对话："
+    echo "  生成的文件通过以下命令发送到当前对话："
     echo -e "${CYAN}  openclaw message send --channel <channel> --target <target> --media <文件路径>${NC}"
     echo "  无需额外配置飞书账号。"
     echo ""
@@ -277,17 +444,67 @@ show_next_steps() {
     echo ""
 }
 
-# 主流程
+# ==================== 工具函数：包安装 ====================
+
+# 检测是否有 sudo 权限或已是 root
+ELEVATED_INSTALL=false
+if [ "$EUID" -eq 0 ]; then
+    ELEVATED_INSTALL=true
+elif command -v sudo &> /dev/null && sudo -n true 2>/dev/null; then
+    ELEVATED_INSTALL=true
+fi
+
+# 通用包安装函数
+_pkg_install() {
+    local manager="$1"
+    local package="$2"
+
+    if ! confirm_action "自动安装 $package？"; then
+        print_error "用户取消安装"
+        exit 1
+    fi
+
+    print_info "正在安装 $package ..."
+
+    # apt 需要先 update
+    if [ "$manager" = "apt-get" ]; then
+        if $ELEVATED_INSTALL; then
+            apt-get update -qq 2>&1 || true
+        else
+            sudo apt-get update -qq 2>&1 || {
+                print_warn "apt-get update 失败，尝试继续安装..."
+            }
+        fi
+    fi
+
+    if $ELEVATED_INSTALL; then
+        $manager install -y "$package" 2>&1
+    else
+        sudo $manager install -y "$package" 2>&1 || {
+            print_warn "sudo 安装失败，尝试直接运行..."
+            $manager install -y "$package" 2>&1
+        }
+    fi
+}
+
+# ==================== 主流程 ====================
+
 main() {
     print_header "阿里云持续运营 Skill 初始化"
 
-    check_python
-    create_venv
-    install_dependencies
-    get_mcp_endpoint
-    get_app_id
-    generate_config
-    generate_oauth_script
+    if $NO_CONFIRM; then
+        print_info "运行模式: 非交互（全自动）"
+        echo ""
+    fi
+
+    check_python            # 步骤 1：检查 Python（缺失则自动安装）
+    ensure_venv_module      # 步骤 2：确保 venv 模块可用（缺失则自动安装）
+    create_venv             # 步骤 3：创建虚拟环境
+    install_dependencies    # 步骤 4：安装 Python 依赖
+    get_mcp_endpoint        # 步骤 5：配置 MCP Endpoint
+    get_app_id              # 步骤 6：配置应用 ID
+    generate_config         # 步骤 7：生成配置文件
+    generate_oauth_script   # 步骤 8：生成 OAuth 脚本
 
     show_next_steps
 }
