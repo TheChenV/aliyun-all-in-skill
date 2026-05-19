@@ -496,7 +496,81 @@ class MCPClient:
             result.remark += f"\n(部分失败: {'; '.join(errors)})"
         
         return result
-    
+
+    def query_rds_price(self, region: str, engine: str, engine_version: str,
+                        db_instance_class: str, db_instance_storage: int,
+                        db_instance_storage_type: str, period: int = 1) -> PriceResult:
+        """
+        RDS 价格查询
+
+        Args:
+            region: 地域代码
+            engine: 数据库引擎
+            engine_version: 数据库版本
+            db_instance_class: 实例规格代码
+            db_instance_storage: 存储大小（GB）
+            db_instance_storage_type: 存储类型代码
+            period: 购买时长（1 或 3 年）
+
+        Returns:
+            PriceResult 对象
+        """
+        cli_cmd = " ".join([
+            "aliyun rds DescribePrice",
+            f"--RegionId {region}",
+            f"--CommodityCode rds",
+            f"--Engine {engine}",
+            f"--EngineVersion {engine_version}",
+            f"--DBInstanceClass {db_instance_class}",
+            f"--DBInstanceStorage {db_instance_storage}",
+            f"--PayType Prepaid",
+            f"--UsedTime {period}",
+            f"--TimeType Year",
+            f"--Quantity 1",
+            f"--InstanceUsedType 0",
+            f"--OrderType BUY",
+            f"--DBInstanceStorageType {db_instance_storage_type}"
+        ])
+
+        response = self._call_tool("AlibabaCloud___CallCLI", {"command": cli_cmd})
+
+        content = response.get("result", {}).get("content", [])
+        result = PriceResult(success=False)
+
+        for item in content:
+            if item.get("type") == "text":
+                text = item.get("text", "")
+                try:
+                    data = json.loads(text)
+                    if "code" in data and data["code"] < 0:
+                        result.error_message = data.get('message', '未知错误')
+                        return result
+
+                    price_info = data.get("PriceInfo", {})
+                    order_lines = price_info.get("OrderLines", {})
+                    order_line = order_lines.get("0", {})
+                    depreciate_info = order_line.get("depreciateInfo", {})
+                    final_activity = depreciate_info.get("finalActivity", {})
+
+                    result.success = True
+                    result.price_1y_list = price_info.get("OriginalPrice")
+                    result.price_1y_discount = final_activity.get("finalFee") if final_activity else None
+                    result.remark_1y = final_activity.get("activityName", "") if final_activity else ""
+                    result.detail_info["1y"] = {
+                        "original_price": price_info.get("OriginalPrice"),
+                        "discount_price": final_activity.get("finalFee") if final_activity else None,
+                        "rules": [final_activity.get("activityName", "")] if final_activity else [],
+                    }
+
+                    return result
+
+                except json.JSONDecodeError as e:
+                    result.error_message = f"JSON 解析失败：{e}"
+                    return result
+
+        result.error_message = "无有效响应数据"
+        return result
+
     def list_tools(self) -> List[Dict]:
         """
         列出可用的 MCP 工具

@@ -242,7 +242,8 @@ class RDSExcelGenerator:
         # 计算合计值
         for col in range(price_start_col, price_end_col + 1):
             is_1y = (col <= price_start_col + 1)
-            is_list = (col % 2 == 0)
+            col_offset = col - price_start_col
+            is_list = (col_offset % 2 == 0)  # 偏移量偶数=目录价，奇数=折扣价
             key = f"price_{'1' if is_1y else '3'}y_{'list' if is_list else 'discount'}"
             total = sum(row[key] for row in self.data_rows if row[key] is not None)
             ws.cell(row=total_row, column=col, value=total)

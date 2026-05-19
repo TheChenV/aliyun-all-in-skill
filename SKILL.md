@@ -18,7 +18,7 @@ AI 需根据输入类型自动判断 RDS 报价场景：
 | 输入 | 场景 | 说明 |
 |------|------|------|
 | `rds_instance_list_<地域>_YYYY 年 MM 月 DD 日 时_分_秒.csv` 文件 | 场景一 | 基于 CSV 文件自动报价 |
-| 待定 | 场景二 | 待定 |
+| 文字配置描述（如 "杭州，4核8G，MySQL 8.0，高可用系列，500GB"） | 场景二 | 基于文字描述自动报价 |
 
 ### RDS 场景一：标准 CSV 格式（直接报价）
 
@@ -33,6 +33,82 @@ venv/bin/python3 scripts/rds_csv_quoter_auto.py /path/to/file.csv
 - 自动查询 1 年和 3 年价格
 - 自动选择 1 年目录价最高的实例应用"新客首购 6 折优惠"（限 1 次，限 1 件）
 - 输出 Excel 格式与 ECS 报价单一致
+
+### RDS 场景二：文字配置报价
+
+用户提供文字描述配置（非 CSV 格式），调用：
+
+```bash
+venv/bin/python3 scripts/rds_text_quoter.py '<配置文本>'
+```
+
+**输出格式**：Excel 报价单共 9 列（无实例 ID 列）
+
+| A | B | C | D | E | F | G | H | I |
+|---|---|---|---|---|---|---|---|---|
+| 产品名称 | 产品描述 | 地域 | 数量 | 1年目录价 | 1年折扣价 | 3年目录价 | 3年折扣价 | 备注 |
+
+**输入参数规则：**
+
+| 参数 | 规则 | 默认值 |
+|------|------|--------|
+| CommodityCode | 固定为 rds | rds |
+| RegionId | 用户提供地域则用用户的，否则默认杭州 | cn-hangzhou |
+| Engine | 用户提供数据库类型则用用户的，否则默认 MySQL；不在 MySQL/SQLServer/PostgreSQL/MariaDB 中则不报价 | MySQL |
+| EngineVersion | 用户提供则用用户的（支持模糊匹配），否则默认引擎最高版本 | MySQL 8.0 / SQLServer 2022 / PG 18.0 / MariaDB 10.6 |
+| DBInstanceClass | 【优先级最高】提供则精确匹配 references/rds_series.json 中的 ClassCode | 无 |
+| CPU+内存 | 未提供 ClassCode 时，在 rds_series.json 中按引擎+CPU+内存+系列匹配 | 无 |
+| Category | 用户提供系列则用用户的，否则默认高可用系列 | HighAvailability |
+| DBInstanceStorage | 用户提供则用用户的，否则默认 100GB | 100GB |
+| DBInstanceStorageType | 用户提供则用用户的，ClassCode 路径下未提供时根据 JSON 的 storageType 推导（Local→local_ssd, Cloud→general_essd） | 动态推导 |
+
+**规格匹配规则：**
+
+1. **提供 ClassCode**：精确匹配 rds_series.json，校验 Engine、CPU/内存、category（系列）、storageType（存储类型）、ClassGroup（规格族）一致性。用户未提供 storageType 时根据 JSON 的 storageType 自动推导（Local→local_ssd, Cloud→general_essd）
+2. **未提供 ClassCode 但提供 CPU+内存**：在 rds_series.json 中按引擎+CPU+内存+系列筛选，多条时按 ClassGroup 优先级（通用型>独享套餐>共享型>经济型>独占物理机）选择，同优先级选 ReferencePrice 最低的
+
+**错误处理：**
+
+| 场景 | 备注（红色字体） |
+|------|------------------|
+| 不支持的数据库类型 | 该数据库类型暂不支持 |
+| ClassCode 不存在 | 提供的数据库规格不存在，请检查 |
+| Engine 冲突 | 该数据库规格和提供的数据库类型冲突，请检查 |
+| CPU/内存冲突 | 该数据库规格和提供的 CPU/内存配置冲突，请检查 |
+| 系列冲突 | 该数据库规格和提供的产品系列冲突，请检查 |
+| 存储类型冲突 | 该数据库规格和提供的存储类型冲突，请检查 |
+| 规格族冲突 | 该数据库规格和提供的规格族冲突，请检查 |
+| 集群系列 | 集群系列暂不自动报价，请人工确认 |
+| 匹配不到规格 | 未找到匹配的规格，请检查配置 |
+| 无 ClassCode 且无 CPU+内存 | 未提供实例规格或 CPU/内存配置 |
+| MCP 询价失败 | MCP 询价失败，请检查配置或人工询价 |
+
+**默认值规则：**
+- 地域：杭州
+- 数据库类型：MySQL
+- 数据库版本：引擎对应的最高版本
+- 存储：100GB
+- 存储类型：CPU+内存路径默认高性能云盘；ClassCode 路径根据 JSON 的 storageType 推导（Local→高性能本地盘, Cloud→高性能云盘）
+- 产品系列：高可用系列
+- 集群系列不报价
+
+**SQLServer 特殊处理：**
+- rds_series.json 中 SQLServer 规格无 category 字段，通过 ClassCode 后缀判断系列
+- `.e2` 后缀需结合 EngineVersion 判断：含"集群"/"cluster"为集群系列，否则为高可用系列
+- 默认优先高可用系列
+
+**MariaDB 特殊处理：**
+- 仅支持高可用系列（HighAvailability），不提供其他系列
+- 仅支持 ESSD PL1/PL2/PL3 云盘，默认 ESSD PL1（cloud_essd）
+- 仅支持 10.3 和 10.6 两个版本，其他版本报错
+
+**存储类型参考：**
+- general_essd：高性能云盘
+- local_ssd：高性能本地盘
+- cloud_ssd：SSD 云盘
+- cloud_essd：ESSD PL1 云盘
+- cloud_essd2：ESSD PL2 云盘
+- cloud_essd3：ESSD PL3 云盘
 
 ## OSS 统计场景判断
 
