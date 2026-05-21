@@ -13,10 +13,7 @@ aliyun-all-in-skill/
 │   └── config.json.example            # 配置文件模板（需复制为 config.json）
 ├── references/
 │   ├── ecs_series.json                # ECS 规格数据（326 规格族，1902 规格）
-│   ├── rds_series.json                # RDS 规格数据
-│   ├── ECS_报价原理.md                # ECS 报价功能原理详解
-│   ├── ECS_报价场景二_完整决策树.md   # ECS 场景二完整决策树
-│   └── RDS_报价场景二_完整决策树.md   # RDS 场景二完整决策树
+│   └── rds_series.json                # RDS 规格数据
 └── scripts/
     ├── setup.sh                       # 交互式初始化脚本
     ├── mcp_verify.sh                  # MCP 连通性校验脚本
