@@ -12,7 +12,11 @@ aliyun-all-in-skill/
 ├── config/
 │   └── config.json.example            # 配置文件模板（需复制为 config.json）
 ├── references/
-│   └── ecs_series.json                # ECS 规格数据（326 规格族，1902 规格）
+│   ├── ecs_series.json                # ECS 规格数据（326 规格族，1902 规格）
+│   ├── rds_series.json                # RDS 规格数据
+│   ├── ECS_报价原理.md                # ECS 报价功能原理详解
+│   ├── ECS_报价场景二_完整决策树.md   # ECS 场景二完整决策树
+│   └── RDS_报价场景二_完整决策树.md   # RDS 场景二完整决策树
 └── scripts/
     ├── setup.sh                       # 交互式初始化脚本
     ├── mcp_verify.sh                  # MCP 连通性校验脚本
@@ -26,6 +30,9 @@ aliyun-all-in-skill/
     ├── ecs_quoter.py                  # ECS 报价统一入口
     ├── rds_csv_quoter_auto.py         # RDS 场景一：CSV 自动报价入口
     ├── rds_csv_quoter.py              # RDS 报价核心逻辑（含 6 折优惠策略）
+    ├── rds_text_quoter.py             # RDS 场景二：文本报价入口
+    ├── rds_text_parser.py             # RDS 文本配置解析器
+    ├── rds_spec_validator.py          # RDS 规格匹配验证器（含 e 字母自动选择规则）
     ├── rds_excel_generator.py         # RDS Excel 报价单生成器
     ├── rds_constants.py               # RDS 常量定义
     ├── mcp_client.py                  # MCP JSON-RPC 客户端
@@ -43,10 +50,14 @@ aliyun-all-in-skill/
 | `SKILL.md` | OpenClaw Skill 定义，包含触发条件、使用方式、参数说明 |
 | `config/config.json` | MCP Endpoint、OAuth 配置、Token 存储（需手动创建） |
 | `references/ecs_series.json` | ECS 规格族数据，用于规格验证和推断 |
+| `references/rds_series.json` | RDS 规格族数据，用于规格验证和推断 |
 | `scripts/setup.sh` | 交互式引导用户完成环境初始化 |
 | `scripts/mcp_verify.sh` | 校验 MCP 连通性，诊断配置问题 |
 | `scripts/oauth_local_server.py` | 本地 OAuth 授权，获取 Access Token |
 | `scripts/mcp_client.py` | MCP JSON-RPC 2.0 客户端封装 |
+| `scripts/rds_text_quoter.py` | RDS 场景二：文本报价入口 |
+| `scripts/rds_text_parser.py` | RDS 文本配置解析器（12 字段提取） |
+| `scripts/rds_spec_validator.py` | RDS 规格验证器（含 e 字母自动选择） |
 
 ## 快速安装
 
@@ -212,6 +223,37 @@ venv/bin/python3 scripts/rds_csv_quoter_auto.py /path/to/file.csv
 - 产品名称：固定为"RDS"
 - 产品描述：引擎、产品系列、存储类型、实例规格、存储空间
 - 备注：1 年优惠说明 | 3 年优惠说明
+
+**场景二：文本配置报价**
+
+用户提供的文字描述配置（非 CSV 格式），AI 先将用户原文格式调整为脚本可解析的中文逗号分隔格式，再传入脚本报价。AI 只做格式调整，不补全任何字段。
+
+```bash
+venv/bin/python3 scripts/rds_text_quoter.py '<配置文本>'
+```
+
+**规格匹配（2 种流程）**
+
+| 流程 | 输入 | 匹配方式 |
+|------|------|----------|
+| 流程 1 | 用户提供 ClassCode（如 mysql.n2.large.2c）| rds_series.json 精确匹配，校验 Engine/CPU/内存/系列/存储类型一致性 |
+| 流程 2 | 用户提供 CPU+内存（如 4核8G）| 按引擎+CPU+内存+系列+storageType 筛选 → ClassGroup 优先级过滤 → 多候选自动决策 |
+
+**流程 2 多候选决策规则：**
+- 1 条 → 直接使用
+- 2 条 → 优先选非 ARM 架构的；若非 ARM 有 2 条且去掉字母 "e" 后 ClassCode 相同（如 pg.n2.2c.1m vs pg.n2e.2c.1m），则选不带 "e" 的标准版；否则要求人工确认
+- 3 条及以上 → 要求人工确认
+
+**默认值规则：**
+
+| 字段 | 默认值 |
+|------|--------|
+| 地域 | 杭州（cn-hangzhou） |
+| 引擎 | MySQL |
+| 引擎版本 | MySQL 8.0 / SQLServer 2022 / PostgreSQL 18.0 / MariaDB 10.6 |
+| 产品系列 | 高可用系列 |
+| 存储大小 | 100GB |
+| storageType | Cloud（高性能云盘） |
 
 ### OSS 资源统计
 
