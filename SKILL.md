@@ -42,6 +42,61 @@ venv/bin/python3 scripts/rds_csv_quoter_auto.py /path/to/file.csv
 venv/bin/python3 scripts/rds_text_quoter.py '<配置文本>'
 ```
 
+**⚠️ AI 执行指引（必读）**：AI 在调用脚本前，必须先将用户原文格式调整为脚本可正确解析的标准格式。**只做格式调整，不补全任何字段，不更改任何内容**（地域、系列、存储类型等默认值全部由脚本处理）。
+
+#### 标准化步骤
+
+1. **按序号分割** — 识别 `1、` `2.` `3)` 等序号，分割每台实例
+2. **提取配置项** — 从原文中提取：引擎+版本、ClassCode（如 `mysql.n2.medium.1`）、CPU+内存（如 `2核4G`）、产品系列、存储类型、存储大小、地域
+3. **调整格式** — 将每台实例重组为脚本可解析的标准格式（见下方）
+4. **不补全** — 用户没提供的字段不要补，留空即可，脚本会自动处理默认值
+
+#### 标准输入格式
+
+```
+1、<地域>，<ClassCode>，<引擎> <版本>，<系列>，<存储类型>，<存储大小>GB
+```
+
+**字段说明：**
+- 地域：用户提供则保留，未提供则不写（脚本默认杭州）
+- ClassCode：用户提供则保留（优先级最高），未提供则不写（脚本会按 CPU+内存匹配）
+- 引擎+版本：用户提供则保留，未提供则不写（脚本默认 MySQL 8.0）
+- 系列：用户提供则保留，未提供则不写（脚本默认高可用系列）
+- 存储类型：用户提供则保留，未提供则不写（脚本根据 ClassCode 从 JSON 推导）
+- 存储大小：用户提供则保留
+
+**注意**：字段之间用中文逗号 `，` 分隔，按序号 `1、2、3、` 开头。
+
+#### 标准化示例
+
+**用户输入（简写/不规范格式）：**
+```
+1、postgresql 15.0，基础系列，高性能云盘，2核 4G（通用型）50GB
+2、引擎:mysql 8.0，产品系列:基础系列，存储类型:ESSD PL1 云盘，实例规格:2核 4GB（单机基础版） mysql.n2.medium.1，存储空间:120GB
+3、ESSD PL1 mysql.n2.large.2c 100GB
+4、杭州 4核8G 250GB
+```
+
+**AI 标准化后传给脚本：**
+```
+1、postgresql 15.0，基础系列，高性能云盘，2核 4G 50GB
+2、mysql 8.0，mysql.n2.medium.1，基础系列，ESSD PL1 云盘，120GB
+3、mysql.n2.large.2c，ESSD PL1 云盘，100GB
+4、杭州，4核 8GB，250GB
+```
+
+#### 关键规则
+
+⚠️ **只做格式调整，不补全任何字段**：用户没写的不要帮用户补。例如用户没写地域，不要补"杭州"；没写系列，不要补"高可用系列"。所有默认值由脚本处理。
+
+⚠️ **ClassCode 优先级最高**：用户提供了 ClassCode 必须保留（脚本会精确匹配 rds_series.json）。用户没提供 ClassCode 时保留 CPU+内存信息，由脚本的 CPU+内存匹配逻辑处理。
+
+⚠️ **存储大小不要误取**：注意区分内存（如 `4GiB`）和存储（如 `50GB`）。存储大小是传给脚本的 `DBInstanceStorage` 参数。
+
+⚠️ **多条匹配时脚本会要求人工确认**：无 ClassCode + CPU+内存匹配到多条规格时（如 PostgreSQL 2核4G 基础系列对应多个规格），脚本会在 Excel 备注中标红提示「匹配到的规格为：xxx、xxx，请人工确认」，这属于脚本的正常设计。
+
+⚠️ **存储类型关键词**：脚本可识别 `高性能云盘` `general_essd` `ESSD PL1` `cloud_essd` `高性能本地盘` `local_ssd` 等关键词。用户写了就保留，没写就不写。
+
 **输出格式**：Excel 报价单共 9 列（无实例 ID 列）
 
 | A | B | C | D | E | F | G | H | I |
@@ -65,7 +120,10 @@ venv/bin/python3 scripts/rds_text_quoter.py '<配置文本>'
 **规格匹配规则：**
 
 1. **提供 ClassCode**：精确匹配 rds_series.json，校验 Engine、CPU/内存、category（系列）、storageType（存储类型）、ClassGroup（规格族）一致性。用户未提供 storageType 时根据 JSON 的 storageType 自动推导（Local→local_ssd, Cloud→general_essd）
-2. **未提供 ClassCode 但提供 CPU+内存**：在 rds_series.json 中按引擎+CPU+内存+系列筛选，多条时按 ClassGroup 优先级（通用型>独享套餐>共享型>经济型>独占物理机）选择，同优先级选 ReferencePrice 最低的
+2. **未提供 ClassCode 但提供 CPU+内存**：在 rds_series.json 中按引擎+CPU+内存+系列筛选：
+   - 仅 1 条匹配 → 直接选用
+   - 2 条匹配 → 优先选非 ARM 架构的；若非 ARM 有 2 条，且去掉字母 `e` 后 ClassCode 相同（如 `pg.n2.2c.1m` 和 `pg.n2e.2c.1m`），则选不带 `e` 的标准版（`pg.n2.2c.1m`）；否则要求人工确认
+   - 3 条及以上 → 要求人工确认
 
 **错误处理：**
 

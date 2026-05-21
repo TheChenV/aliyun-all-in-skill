@@ -234,11 +234,24 @@ class RDSSpecValidator:
                 # 存在 arm → 选非 arm 的
                 selected = non_arm_item
             else:
-                # 两条都不是 arm → 不报价
-                codes = sorted([c["ClassCode"] for c in candidates])
-                return SpecMatchResult(
-                    error=f"匹配到的规格为：{codes[0]}、{codes[1]}，请人工确认"
-                )
+                # 两条都不是 arm → 检查是否仅差 "e" 字母（如 pg.n2.2c.1m vs pg.n2e.2c.1m）
+                codes = [c["ClassCode"] for c in candidates]
+                no_e_codes = [c.replace("e", "") for c in codes]
+                if no_e_codes[0] == no_e_codes[1]:
+                    # 仅差 e → 选不带 e 的（标准版）
+                    for c in candidates:
+                        if "e" not in c["ClassCode"]:
+                            selected = c
+                            break
+                    else:
+                        # 理论上不会走到这里（两个都带 e 消除后相等不可能）
+                        selected = candidates[0]
+                else:
+                    # 差异不止 e → 不报价
+                    codes_sorted = sorted(codes)
+                    return SpecMatchResult(
+                        error=f"匹配到的规格为：{codes_sorted[0]}、{codes_sorted[1]}，请人工确认"
+                    )
         else:
             # 3 条及以上 → 不报价
             codes = sorted([c["ClassCode"] for c in candidates])
