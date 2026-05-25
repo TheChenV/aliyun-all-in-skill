@@ -72,7 +72,6 @@ cd aliyun-all-in-skill
 
 脚本会交互式引导你完成：
 - Python 虚拟环境安装
-- uv 工具管理器安装
 - 参数配置（MCP Endpoint、AK AccessKey ID/Secret）
 - 生成配置文件
 

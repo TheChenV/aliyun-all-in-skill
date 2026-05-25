@@ -447,7 +447,7 @@ aliyun-all-in-skill/
 ```
 
 - AK 凭证**永不过期**（除非手动吊销），无需定期刷新
-- 需要系统安装 `uv`（`curl -LsSf https://astral.sh/uv/install.sh | sh`）
+- mcp-proxy 通过 venv 安装，运行 `setup.sh` 自动安装
 - AK 对应的 RAM 用户需授予 `AliyunOpenAPIMCPServerStaticCredentialAccess` 权限
 - 获取 AccessKey：[RAM 控制台](https://ram.console.aliyun.com/users) → 用户 → 创建 AccessKey
 

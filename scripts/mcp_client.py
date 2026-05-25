@@ -45,6 +45,7 @@ class MCPClient:
             script_dir = os.path.dirname(os.path.abspath(__file__))
             config_dir = os.path.join(script_dir, "..", "config")
 
+        self.script_dir = os.path.dirname(os.path.abspath(__file__))
         self.config_dir = os.path.abspath(config_dir)
         self.config_path = os.path.join(self.config_dir, "config.json")
         self.config = self._load_config()
@@ -88,12 +89,16 @@ class MCPClient:
         env["ALIBABACLOUD_MCP_SERVER_URL"] = self.endpoint
         env["ALIBABACLOUD_MCP_SITE_TYPE"] = "CN"
 
-        uvx_path = os.path.expanduser("~/.local/bin/uvx")
-        if not os.path.exists(uvx_path):
-            uvx_path = "uvx"
+        # 使用 venv 中的 Python 运行 mcp-proxy
+        venv_python = os.path.join(self.script_dir, "venv", "bin", "python")
+        if not os.path.exists(venv_python):
+            raise FileNotFoundError(
+                f"未找到 venv Python: {venv_python}\n"
+                f"请先运行 setup.sh 或手动创建虚拟环境。"
+            )
 
         self._proxy_proc = subprocess.Popen(
-            [uvx_path, "alibabacloud.mcp-proxy@latest", "--server-url", self.endpoint],
+            [venv_python, "-m", "alibabacloud.mcp_proxy", "--server-url", self.endpoint],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,

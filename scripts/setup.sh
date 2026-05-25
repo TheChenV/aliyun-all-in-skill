@@ -186,28 +186,7 @@ install_dependencies() {
     fi
 }
 
-# ==================== 步骤 5：安装 uv（AK 模式需要） ====================
-
-install_uv() {
-    step; print_step "$STEP" "安装 uv 工具管理器"
-    if command -v uvx &> /dev/null; then
-        UV_VERSION=$(uvx --version 2>&1 | head -1)
-        print_success "uv 已安装: $UV_VERSION"
-        return 0
-    fi
-    print_info "正在安装 uv..."
-    curl -LsSf https://astral.sh/uv/install.sh | sh 2>&1
-    export PATH="$HOME/.local/bin:$PATH"
-    if command -v uvx &> /dev/null; then
-        UV_VERSION=$(uvx --version 2>&1 | head -1)
-        print_success "uv 安装成功: $UV_VERSION"
-    else
-        print_error "uv 安装失败，请手动安装: curl -LsSf https://astral.sh/uv/install.sh | sh"
-        exit 1
-    fi
-}
-
-# ==================== 步骤 6：配置 MCP Endpoint ====================
+# ==================== 步骤 5：配置 MCP Endpoint ====================
 
 get_mcp_endpoint() {
     step; print_step "$STEP" "配置 MCP Endpoint"
@@ -234,7 +213,7 @@ get_mcp_endpoint() {
     print_success "MCP Endpoint 已记录"
 }
 
-# ==================== 步骤 7：配置 AK 凭证 ====================
+# ==================== 步骤 6：配置 AK 凭证 ====================
 
 get_ak_credentials() {
     step; print_step "$STEP" "配置 AK 静态凭证"
@@ -275,7 +254,7 @@ get_ak_credentials() {
     print_success "AK 凭证已记录"
 }
 
-# ==================== 步骤 8：生成配置文件 ====================
+# ==================== 步骤 7：生成配置文件 ====================
 
 generate_config() {
     step; print_step "$STEP" "生成配置文件"
@@ -373,10 +352,9 @@ main() {
     ensure_venv_module        # 步骤 2
     create_venv               # 步骤 3
     install_dependencies      # 步骤 4
-    install_uv                # 步骤 5
-    get_mcp_endpoint          # 步骤 6
-    get_ak_credentials        # 步骤 7
-    generate_config           # 步骤 8
+    get_mcp_endpoint          # 步骤 5
+    get_ak_credentials        # 步骤 6
+    generate_config           # 步骤 7
 
     show_next_steps
 }

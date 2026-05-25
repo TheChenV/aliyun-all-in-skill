@@ -5,3 +5,6 @@ openpyxl>=3.1.2
 
 # OSS SDK（可选，仅 OSS 统计需要）
 oss2>=2.19.0
+
+# MCP 代理（AK 模式）
+alibabacloud.mcp-proxy>=0.2.5
