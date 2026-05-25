@@ -432,7 +432,27 @@ aliyun-all-in-skill/
 
 ## 配置要求
 
-`config/config.json` 需要配置 MCP 和 OAuth（ECS 报价必需，RDS 报价也需要，OSS 场景一也需要）：
+`config/config.json` 支持两种认证模式，优先使用 AK 模式。
+
+### 模式一：AK 静态凭证（推荐，永不过期）
+
+```json
+{
+  "mcp": {
+    "endpoint": "https://openapi-mcp.cn-hangzhou.aliyuncs.com/id/YOUR_ID/mcp"
+  },
+  "ak": {
+    "access_key_id": "LTAI...",
+    "access_key_secret": "..."
+  }
+}
+```
+
+- AK 凭证**永不过期**（除非手动吊销），无需定期刷新
+- 需要系统安装 `uv`（`curl -LsSf https://astral.sh/uv/install.sh | sh`）
+- AK 对应的 RAM 用户需授予 `AliyunOpenAPIMCPServerStaticCredentialAccess` 权限
+
+### 模式二：OAuth（向后兼容）
 
 ```json
 {
@@ -450,7 +470,11 @@ aliyun-all-in-skill/
 }
 ```
 
-首次使用需要 OAuth 授权。
+- 当 `ak` 未配置或为占位符时，自动回退到 OAuth 模式
+- Access Token 约 72 小时过期，自动使用 refresh_token 刷新
+- 如果 refresh_token 也过期，需要重新运行 `oauth_local_server.py` 授权
+
+两种模式可共存，代码自动检测并选择 AK 优先。
 
 ### 输出目录配置
 

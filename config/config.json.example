@@ -3,6 +3,10 @@
   "mcp": {
     "endpoint": "YOUR_MCP_ENDPOINT_HERE"
   },
+  "ak": {
+    "access_key_id": "YOUR_AK_ID_HERE",
+    "access_key_secret": "YOUR_AK_SECRET_HERE"
+  },
   "oauth": {
     "app_name": "alibabacloud-api-mcp-server@app.1263926834388048.onaliyun.com",
     "app_id": "YOUR_APP_ID_HERE",
