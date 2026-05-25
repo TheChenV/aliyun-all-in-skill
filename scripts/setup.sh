@@ -304,10 +304,10 @@ show_next_steps() {
 
     printf '%b[步骤 3]%b 测试报价\n' "$GREEN" "$NC"
     echo "  ECS 报价（文本模式）："
-    printf '  %bvenv/bin/python3 scripts/ecs_text_quoter.py \'配置描述\'%b\n' "$CYAN" "$NC"
+    printf "  %bvenv/bin/python3 scripts/ecs_text_quoter.py '配置描述'%b\n" "$CYAN" "$NC"
     echo ""
     echo "  RDS 报价（文本模式）："
-    printf '  %bvenv/bin/python3 scripts/rds_text_quoter.py \'配置描述\'%b\n' "$CYAN" "$NC"
+    printf "  %bvenv/bin/python3 scripts/rds_text_quoter.py '配置描述'%b\n" "$CYAN" "$NC"
     echo ""
 
     printf '%b========================================%b\n' "$YELLOW" "$NC"
