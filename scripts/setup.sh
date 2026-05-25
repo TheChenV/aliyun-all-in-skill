@@ -11,13 +11,14 @@
 
 set -e
 
-# 颜色定义
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+# 颜色定义（$'\033' 在赋值时解析，兼容性最好）
+RED=$'\033[0;31m'
+GREEN=$'\033[0;32m'
+YELLOW=$'\033[1;33m'
+BLUE=$'\033[0;34m'
+CYAN=$'\033[0;36m'
+BOLD=$'\033[1m'
+NC=$'\033[0m'
 
 # 解析参数
 NO_CONFIRM=false
@@ -36,19 +37,21 @@ step() { STEP=$((STEP + 1)); }
 
 print_header() {
     echo ""
-    echo -e "${BLUE}========================================${NC}"
-    echo -e "${BLUE}  $1${NC}"
-    echo -e "${BLUE}========================================${NC}"
+    printf '%b' "$BOLD"
+    echo "========================================"
+    echo "  $1"
+    echo "========================================"
+    printf '%b\n' "$NC"
     echo ""
 }
 
-print_step() { echo -e "${GREEN}[步骤 $1]${NC} $2"; }
-print_info() { echo -e "${CYAN}  $1${NC}"; }
-print_success() { echo -e "${GREEN}  ✓ $1${NC}"; }
-print_warn() { echo -e "${YELLOW}  ⚠ $1${NC}"; }
-print_error() { echo -e "${RED}  ✗ $1${NC}"; }
+print_step() { printf '%b[步骤 %d]%b %s\n' "$GREEN" "$1" "$NC" "$2"; }
+print_info() { printf '  %b%s%b\n' "$YELLOW" "$1" "$NC"; }
+print_success() { printf '  %b[OK]%b %s\n' "$GREEN" "$NC" "$1"; }
+print_warn() { printf '  %b[WARN]%b %s\n' "$YELLOW" "$NC" "$1"; }
+print_error() { printf '  %b[ERROR]%b %s\n' "$RED" "$NC" "$1"; }
 
-print_separator() { echo ""; echo -e "${BLUE}----------------------------------------${NC}"; echo ""; }
+print_separator() { echo ""; printf '%b' "$BLUE"; echo "----------------------------------------"; printf '%b\n' "$NC"; echo ""; }
 
 confirm_action() {
     if $NO_CONFIRM; then
@@ -74,7 +77,7 @@ check_python() {
     PYTHON_MAJOR=$(echo "$PYTHON_VERSION" | cut -d. -f1)
     PYTHON_MINOR=$(echo "$PYTHON_VERSION" | cut -d. -f2)
     if [ "$PYTHON_MAJOR" -lt 3 ] || { [ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 10 ]; }; then
-        print_error "Python 版本过低: $PYTHON_VERSION（需要 ≥ 3.10）"
+        print_error "Python 版本过低: $PYTHON_VERSION（需要 >= 3.10）"
         _auto_install_python
         return $?
     fi
@@ -191,14 +194,14 @@ install_dependencies() {
 get_mcp_endpoint() {
     step; print_step "$STEP" "配置 MCP Endpoint"
     print_separator
-    echo -e "${YELLOW}如何获取 MCP Endpoint：${NC}"
+    printf '%b如何获取 MCP Endpoint：%b\n' "$YELLOW" "$NC"
     echo ""
     echo "  1. 登录阿里云控制台"
-    echo "  2. 访问: ${CYAN}https://api.aliyun.com/mcp${NC}"
-    echo "  3. 复制「Streamable HTTP Endpoint」"
+    printf '  2. 访问: %bhttps://api.aliyun.com/mcp%b\n' "$CYAN" "$NC"
+    echo "  3. 复制 Streamable HTTP Endpoint"
     echo ""
-    echo -e "${YELLOW}格式示例：${NC}"
-    echo -e "${CYAN}  https://openapi-mcp.<region>.aliyuncs.com/id/<your-id>/mcp${NC}"
+    printf '%b格式示例：%b\n' "$YELLOW" "$NC"
+    printf '  %bhttps://openapi-mcp.<region>.aliyuncs.com/id/<your-id>/mcp%b\n' "$CYAN" "$NC"
     print_separator
     echo -n "请输入 MCP Endpoint: "
     read MCP_ENDPOINT
@@ -218,25 +221,25 @@ get_mcp_endpoint() {
 get_ak_credentials() {
     step; print_step "$STEP" "配置 AK 静态凭证"
     print_separator
-    echo -e "${YELLOW}如何获取 AccessKey：${NC}"
+    printf '%b如何获取 AccessKey：%b\n' "$YELLOW" "$NC"
     echo ""
     echo "  1. 登录阿里云 RAM 控制台："
-    echo -e "${CYAN}     https://ram.console.aliyun.com/users${NC}"
+    printf '     %bhttps://ram.console.aliyun.com/users%b\n' "$CYAN" "$NC"
     echo ""
     echo "  2. 找到对应的 RAM 用户，点击进入详情"
     echo ""
-    echo "  3. 在「认证管理」标签页中："
-    echo "     - 找到「AccessKey」区域"
-    echo "     - 点击「创建 AccessKey」"
+    echo "  3. 在 认证管理 标签页中："
+    echo "     - 找到 AccessKey 区域"
+    echo "     - 点击 创建 AccessKey"
     echo ""
     echo "  4. 创建成功后，保存 AccessKey ID 和 AccessKey Secret"
     echo ""
-    echo -e "${YELLOW}前置条件：${NC}"
+    printf '%b前置条件：%b\n' "$YELLOW" "$NC"
     echo ""
     echo "  该 RAM 用户需要授予以下权限策略："
-    echo -e "${CYAN}  AliyunOpenAPIMCPServerStaticCredentialAccess${NC}"
+    printf '  %bAliyunOpenAPIMCPServerStaticCredentialAccess%b\n' "$CYAN" "$NC"
     echo ""
-    echo "  在 RAM 控制台 → 用户 → 权限管理 → 添加权限 → 搜索该策略名称"
+    echo "  在 RAM 控制台 -> 用户 -> 权限管理 -> 添加权限 -> 搜索该策略名称"
     print_separator
     echo -n "请输入 AccessKey ID: "
     read AK_ID
@@ -245,8 +248,7 @@ get_ak_credentials() {
         exit 1
     fi
     echo -n "请输入 AccessKey Secret: "
-    read -s AK_SECRET
-    echo ""
+    read AK_SECRET
     if [ -z "$AK_SECRET" ]; then
         print_error "AccessKey Secret 不能为空"
         exit 1
@@ -284,33 +286,33 @@ PYEOF
 
 show_next_steps() {
     print_header "初始化完成 - 请继续完成以下步骤"
-    echo -e "${YELLOW}========================================${NC}"
-    echo -e "${YELLOW}  后续步骤${NC}"
-    echo -e "${YELLOW}========================================${NC}"
+    printf '%b========================================%b\n' "$YELLOW" "$NC"
+    printf '%b  后续步骤%b\n' "$YELLOW" "$NC"
+    printf '%b========================================%b\n' "$YELLOW" "$NC"
     echo ""
 
-    echo -e "${GREEN}[步骤 1] 配置 RAM 权限${NC}"
+    printf '%b[步骤 1]%b 配置 RAM 权限\n' "$GREEN" "$NC"
     echo "  确保 AK 对应的 RAM 用户已授予以下策略："
-    echo -e "${CYAN}  AliyunOpenAPIMCPServerStaticCredentialAccess${NC}"
+    printf '  %bAliyunOpenAPIMCPServerStaticCredentialAccess%b\n' "$CYAN" "$NC"
     echo "  如已配置，可跳过此步骤。"
     echo ""
 
-    echo -e "${GREEN}[步骤 2] 校验 MCP 连通性${NC}"
+    printf '%b[步骤 2]%b 校验 MCP 连通性\n' "$GREEN" "$NC"
     echo "  运行以下命令校验："
-    echo -e "${CYAN}  ./scripts/mcp_verify.sh${NC}"
+    printf '  %b./scripts/mcp_verify.sh%b\n' "$CYAN" "$NC"
     echo ""
 
-    echo -e "${GREEN}[步骤 3] 测试报价${NC}"
+    printf '%b[步骤 3]%b 测试报价\n' "$GREEN" "$NC"
     echo "  ECS 报价（文本模式）："
-    echo -e "${CYAN}  venv/bin/python3 scripts/ecs_text_quoter.py '配置描述'${NC}"
+    printf '  %bvenv/bin/python3 scripts/ecs_text_quoter.py \'配置描述\'%b\n' "$CYAN" "$NC"
     echo ""
     echo "  RDS 报价（文本模式）："
-    echo -e "${CYAN}  venv/bin/python3 scripts/rds_text_quoter.py '配置描述'${NC}"
+    printf '  %bvenv/bin/python3 scripts/rds_text_quoter.py \'配置描述\'%b\n' "$CYAN" "$NC"
     echo ""
 
-    echo -e "${YELLOW}========================================${NC}"
+    printf '%b========================================%b\n' "$YELLOW" "$NC"
     echo ""
-    echo -e "${GREEN}AK 静态凭证认证，无需定期刷新，永不过期。${NC}"
+    printf '%bAK 静态凭证认证，无需定期刷新，永不过期。%b\n' "$GREEN" "$NC"
     echo ""
 }
 

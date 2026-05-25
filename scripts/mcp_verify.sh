@@ -7,12 +7,13 @@
 
 set -e
 
-# 颜色定义
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+# 颜色定义（$'\033' 在赋值时解析，兼容性最好）
+RED=$'\033[0;31m'
+GREEN=$'\033[0;32m'
+YELLOW=$'\033[1;33m'
+BLUE=$'\033[0;34m'
+BOLD=$'\033[1m'
+NC=$'\033[0m'
 
 # 获取路径
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,26 +22,14 @@ CONFIG_DIR="$SKILL_DIR/config"
 CONFIG_FILE="$CONFIG_DIR/config.json"
 
 # 打印函数
-print_check() {
-    echo -e "${BLUE}[检查]${NC} $1"
-}
-
-print_success() {
-    echo -e "${GREEN}  ✓ $1${NC}"
-}
-
-print_error() {
-    echo -e "${RED}  ✗ $1${NC}"
-}
-
-print_info() {
-    echo -e "${YELLOW}  $1${NC}"
-}
+print_check() { printf '%b[检查]%b %s\n' "$BLUE" "$NC" "$1"; }
+print_success() { printf '  %b[OK]%b %s\n' "$GREEN" "$NC" "$1"; }
+print_error() { printf '  %b[ERROR]%b %s\n' "$RED" "$NC" "$1"; }
+print_info() { printf '  %b%s%b\n' "$YELLOW" "$1" "$NC"; }
 
 # 检查 config.json 是否存在
 check_config_exists() {
     print_check "配置文件是否存在"
-
     if [ -f "$CONFIG_FILE" ]; then
         print_success "config.json 存在: $CONFIG_FILE"
         return 0
@@ -54,7 +43,6 @@ check_config_exists() {
 # 检查 MCP Endpoint
 check_mcp_endpoint() {
     print_check "MCP Endpoint 配置"
-
     ENDPOINT=$(python3 -c "
 import json
 with open('$CONFIG_FILE', 'r') as f:
@@ -65,7 +53,6 @@ with open('$CONFIG_FILE', 'r') as f:
     else:
         print(endpoint)
 " 2>/dev/null)
-
     if [ "$ENDPOINT" = "EMPTY" ]; then
         print_error "MCP Endpoint 未配置"
         print_info "请访问 https://api.aliyun.com/mcp 获取 Endpoint"
@@ -76,191 +63,82 @@ with open('$CONFIG_FILE', 'r') as f:
     fi
 }
 
-# 检查 app_id
-check_app_id() {
-    print_check "应用 ID (app_id) 配置"
-
-    APP_ID=$(python3 -c "
+# 检查 AK 凭证
+check_ak_credentials() {
+    print_check "AK 静态凭证配置"
+    AK_CHECK=$(python3 -c "
 import json
 with open('$CONFIG_FILE', 'r') as f:
     config = json.load(f)
-    app_id = config.get('oauth', {}).get('app_id', '')
-    if app_id == 'YOUR_APP_ID_HERE' or not app_id:
-        print('EMPTY')
+    ak = config.get('ak', {})
+    ak_id = ak.get('access_key_id', '')
+    ak_secret = ak.get('access_key_secret', '')
+    if ak_id == 'YOUR_AK_ID_HERE' or not ak_id:
+        print('ID_EMPTY')
+    elif ak_secret == 'YOUR_AK_SECRET_HERE' or not ak_secret:
+        print('SECRET_EMPTY')
     else:
-        print(app_id)
+        print('OK')
 " 2>/dev/null)
-
-    if [ "$APP_ID" = "EMPTY" ]; then
-        print_error "应用 ID 未配置"
-        print_info "请前往 RAM 控制台获取应用 ID"
-        return 1
-    else
-        print_success "应用 ID: $APP_ID"
-        return 0
-    fi
+    case "$AK_CHECK" in
+        ID_EMPTY)
+            print_error "AccessKey ID 未配置"
+            print_info "请在 config.json 中配置 ak.access_key_id"
+            return 1
+            ;;
+        SECRET_EMPTY)
+            print_error "AccessKey Secret 未配置"
+            print_info "请在 config.json 中配置 ak.access_key_secret"
+            return 1
+            ;;
+        OK)
+            print_success "AK 凭证已配置"
+            return 0
+            ;;
+        *)
+            print_error "无法解析 AK 配置"
+            return 1
+            ;;
+    esac
 }
 
-# 检查 Token
-check_token() {
-    print_check "Access Token 配置"
-
-    ACCESS_TOKEN=$(python3 -c "
-import json
-with open('$CONFIG_FILE', 'r') as f:
-    config = json.load(f)
-    token = config.get('token', {}).get('access_token', '')
-    if token == 'YOUR_ACCESS_TOKEN_HERE' or not token:
-        print('EMPTY')
-    else:
-        print('SET')
-" 2>/dev/null)
-
-    if [ "$ACCESS_TOKEN" = "EMPTY" ]; then
-        print_error "Access Token 未配置"
-        print_info "请在本地运行 oauth_local_server.py 获取 Token"
+# 检查 venv 和 mcp-proxy 依赖
+check_venv_and_proxy() {
+    print_check "venv 和 mcp-proxy 依赖"
+    VENV_PYTHON="$SCRIPT_DIR/venv/bin/python"
+    if [ ! -f "$VENV_PYTHON" ]; then
+        print_error "venv Python 不存在: $VENV_PYTHON"
+        print_info "请先运行 setup.sh 创建虚拟环境"
         return 1
-    else
-        print_success "Access Token 已配置"
-        return 0
     fi
+    if ! "$VENV_PYTHON" -c "import alibabacloud.mcp_proxy" 2>/dev/null; then
+        print_error "mcp-proxy 未安装"
+        print_info "请运行: venv/bin/pip install alibabacloud.mcp-proxy"
+        return 1
+    fi
+    PROXY_VERSION=$("$VENV_PYTHON" -c "from alibabacloud.mcp_proxy import __version__; print(__version__)" 2>/dev/null)
+    print_success "mcp-proxy 已安装 (版本: $PROXY_VERSION)"
+    return 0
 }
 
-# 测试 MCP 连接（使用正确的 JSON-RPC 协议）
+# 测试 MCP 连接（通过 mcp_client.py）
 test_mcp_connection() {
     print_check "MCP 连接测试"
-
-    # 使用环境变量传递配置文件路径
-    export MCP_CONFIG_FILE="$CONFIG_FILE"
-
-    # 使用 Python 的 mcp_client 测试连接
-    RESULT=$(python3 << 'PYEOF'
-import json
-import urllib.request
-import urllib.error
-import sys
-import os
+    VENV_PYTHON="$SCRIPT_DIR/venv/bin/python"
+    RESULT=$("$VENV_PYTHON" -c "
+import sys, os, json
+sys.path.insert(0, '$SCRIPT_DIR')
+from mcp_client import MCPClient
 
 try:
-    config_file = os.environ.get('MCP_CONFIG_FILE')
-
-    if not config_file:
-        print(json.dumps({"success": False, "error": "配置文件路径未设置"}))
-        sys.exit(0)
-
-    # 读取配置
-    with open(config_file, 'r') as f:
-        config = json.load(f)
-
-    endpoint = config.get('mcp', {}).get('endpoint', '')
-    access_token = config.get('token', {}).get('access_token', '')
-
-    if not endpoint or not access_token:
-        print(json.dumps({"success": False, "error": "配置不完整"}))
-        sys.exit(0)
-
-    # 步骤 1: Initialize 获取 session ID
-    init_payload = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "initialize",
-        "params": {
-            "protocolVersion": "2024-11-05",
-            "capabilities": {},
-            "clientInfo": {
-                "name": "mcp-verify",
-                "version": "1.0.0"
-            }
-        }
-    }
-
-    init_req = urllib.request.Request(
-        endpoint,
-        data=json.dumps(init_payload).encode('utf-8'),
-        method='POST'
-    )
-    init_req.add_header('Authorization', f'Bearer {access_token}')
-    init_req.add_header('Content-Type', 'application/json')
-    init_req.add_header('Accept', 'application/json, text/event-stream')
-
-    try:
-        with urllib.request.urlopen(init_req, timeout=30) as response:
-            session_id = response.headers.get('mcp-session-id')
-
-            if not session_id:
-                print(json.dumps({
-                    "success": False,
-                    "error": "未获取到 session ID",
-                    "detail": "请检查 MCP Endpoint 是否正确"
-                }))
-                sys.exit(0)
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode('utf-8')[:500]
-        if e.code == 401:
-            print(json.dumps({
-                "success": False,
-                "error": "Token 无效或已过期",
-                "detail": "请重新运行 oauth_local_server.py 获取新 Token"
-            }))
-        elif e.code == 404:
-            print(json.dumps({
-                "success": False,
-                "error": "Endpoint 不存在",
-                "detail": "请检查 MCP Endpoint URL 是否正确"
-            }))
-        else:
-            print(json.dumps({
-                "success": False,
-                "error": f"HTTP {e.code}",
-                "detail": error_body
-            }))
-        sys.exit(0)
-    except urllib.error.URLError as e:
-        print(json.dumps({
-            "success": False,
-            "error": "网络连接失败",
-            "detail": str(e.reason)
-        }))
-        sys.exit(0)
-
-    # 步骤 2: 调用 tools/list
-    tools_payload = {
-        "jsonrpc": "2.0",
-        "id": 2,
-        "method": "tools/list",
-        "params": {}
-    }
-
-    tools_req = urllib.request.Request(
-        endpoint,
-        data=json.dumps(tools_payload).encode('utf-8'),
-        method='POST'
-    )
-    tools_req.add_header('Authorization', f'Bearer {access_token}')
-    tools_req.add_header('Content-Type', 'application/json')
-    tools_req.add_header('Accept', 'application/json')
-    tools_req.add_header('mcp-session-id', session_id)
-
-    with urllib.request.urlopen(tools_req, timeout=30) as response:
-        result = json.loads(response.read().decode('utf-8'))
-        # 处理多种返回格式: {"tools": []} 或 {"result": {"tools": []}} 或直接列表
-        if isinstance(result, list):
-            tools = result
-        elif isinstance(result, dict):
-            tools = result.get('tools', result.get('result', {}).get('tools', []))
-        else:
-            tools = []
-        print(json.dumps({
-            "success": True,
-            "tools_count": len(tools)
-        }))
-
+    client = MCPClient()
+    tools = client.list_tools()
+    client.close()
+    print(json.dumps({'success': True, 'tools_count': len(tools)}))
 except Exception as e:
-    print(json.dumps({"success": False, "error": str(e)}))
-PYEOF
- 2>&1)
+    print(json.dumps({'success': False, 'error': str(e)}))
+" 2>&1)
 
-    # 检查是否有 Python 错误输出
     if echo "$RESULT" | grep -q "^Traceback"; then
         print_error "MCP 连接失败: Python 错误"
         print_info "请检查 Python 环境和依赖"
@@ -276,12 +154,7 @@ PYEOF
         return 0
     else
         ERROR=$(echo "$RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('error', '未知错误'))" 2>/dev/null)
-        DETAIL=$(echo "$RESULT" | python3 -c "import json,sys; d=json.load(sys.stdin).get('detail', ''); print(d if d else '')" 2>/dev/null)
-
         print_error "MCP 连接失败: $ERROR"
-        if [ -n "$DETAIL" ]; then
-            print_info "详情: $DETAIL"
-        fi
         return 1
     fi
 }
@@ -289,32 +162,32 @@ PYEOF
 # 主流程
 main() {
     echo ""
-    echo -e "${BLUE}========================================${NC}"
-    echo -e "${BLUE}  MCP 连通性校验${NC}"
-    echo -e "${BLUE}========================================${NC}"
+    printf '%b========================================%b\n' "$BOLD$BLUE" "$NC"
+    printf '%b  MCP 连通性校验%b\n' "$BOLD$BLUE" "$NC"
+    printf '%b========================================%b\n' "$BOLD$BLUE" "$NC"
     echo ""
 
     ERRORS=0
 
     check_config_exists || ERRORS=$((ERRORS+1))
     check_mcp_endpoint || ERRORS=$((ERRORS+1))
-    check_app_id || ERRORS=$((ERRORS+1))
-    check_token || ERRORS=$((ERRORS+1))
+    check_ak_credentials || ERRORS=$((ERRORS+1))
+    check_venv_and_proxy || ERRORS=$((ERRORS+1))
 
     if [ $ERRORS -eq 0 ]; then
         test_mcp_connection || ERRORS=$((ERRORS+1))
     fi
 
     echo ""
-    echo -e "${BLUE}========================================${NC}"
+    printf '%b========================================%b\n' "$BLUE" "$NC"
 
     if [ $ERRORS -eq 0 ]; then
-        echo -e "${GREEN}  ✓ 校验通过，Skill 已就绪${NC}"
+        printf '  %b[OK]%b 校验通过，Skill 已就绪\n' "$GREEN" "$NC"
     else
-        echo -e "${RED}  ✗ 发现 $ERRORS 个问题，请按提示修复${NC}"
+        printf '  %b[ERROR]%b 发现 %d 个问题，请按提示修复\n' "$RED" "$NC" "$ERRORS"
     fi
 
-    echo -e "${BLUE}========================================${NC}"
+    printf '%b========================================%b\n' "$BLUE" "$NC"
     echo ""
 
     exit $ERRORS
