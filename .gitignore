@@ -8,13 +8,8 @@ __pycache__/
 
 # 配置文件（包含敏感信息）
 config/config.json
-scripts/oauth_local_server.py
 
-# Token 文件
-aliyun_token.json
-*.token.json
-
-# Excel 临时文件
+# Excel 文件（由脚本生成）
 *.xlsx
 *.xls
 

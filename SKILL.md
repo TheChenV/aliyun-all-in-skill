@@ -410,7 +410,7 @@ venv/bin/python3 scripts/ecs_csv_quoter_auto.py /path/to/file.csv
 aliyun-all-in-skill/
 ├── SKILL.md                           # Skill 定义文件
 ├── config/
-│   └── config.json                    # MCP + OAuth 配置
+│   └── config.json                    # MCP + AK 配置
 ├── references/
 │   └── ecs_series.json                # ECS 规格数据
 └── scripts/
@@ -432,9 +432,7 @@ aliyun-all-in-skill/
 
 ## 配置要求
 
-`config/config.json` 支持两种认证模式，优先使用 AK 模式。
-
-### 模式一：AK 静态凭证（推荐，永不过期）
+`config/config.json` 使用 AK 静态凭证认证。
 
 ```json
 {
@@ -451,30 +449,7 @@ aliyun-all-in-skill/
 - AK 凭证**永不过期**（除非手动吊销），无需定期刷新
 - 需要系统安装 `uv`（`curl -LsSf https://astral.sh/uv/install.sh | sh`）
 - AK 对应的 RAM 用户需授予 `AliyunOpenAPIMCPServerStaticCredentialAccess` 权限
-
-### 模式二：OAuth（向后兼容）
-
-```json
-{
-  "mcp": {
-    "endpoint": "https://openapi-mcp.cn-hangzhou.aliyuncs.com/id/YOUR_ID/mcp"
-  },
-  "oauth": {
-    "app_id": "YOUR_APP_ID"
-  },
-  "token": {
-    "access_token": "...",
-    "refresh_token": "...",
-    "expires_at": 1775045890
-  }
-}
-```
-
-- 当 `ak` 未配置或为占位符时，自动回退到 OAuth 模式
-- Access Token 约 72 小时过期，自动使用 refresh_token 刷新
-- 如果 refresh_token 也过期，需要重新运行 `oauth_local_server.py` 授权
-
-两种模式可共存，代码自动检测并选择 AK 优先。
+- 获取 AccessKey：[RAM 控制台](https://ram.console.aliyun.com/users) → 用户 → 创建 AccessKey
 
 ### 输出目录配置
 

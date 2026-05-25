@@ -17,7 +17,6 @@ aliyun-all-in-skill/
 └── scripts/
     ├── setup.sh                       # 交互式初始化脚本
     ├── mcp_verify.sh                  # MCP 连通性校验脚本
-    ├── oauth_local_server.py.example  # OAuth 授权脚本模板
     ├── ecs_csv_quoter_auto.py         # ECS 场景一：CSV 自动报价入口
     ├── ecs_csv_quoter.py              # ECS CSV 解析核心逻辑
     ├── ecs_text_quoter.py             # ECS 场景二：文本报价入口
@@ -45,12 +44,11 @@ aliyun-all-in-skill/
 | 文件 | 功能 |
 |------|------|
 | `SKILL.md` | OpenClaw Skill 定义，包含触发条件、使用方式、参数说明 |
-| `config/config.json` | MCP Endpoint、OAuth 配置、Token 存储（需手动创建） |
+| `config/config.json` | MCP Endpoint、AK 凭证存储（需手动创建） |
 | `references/ecs_series.json` | ECS 规格族数据，用于规格验证和推断 |
 | `references/rds_series.json` | RDS 规格族数据，用于规格验证和推断 |
 | `scripts/setup.sh` | 交互式引导用户完成环境初始化 |
 | `scripts/mcp_verify.sh` | 校验 MCP 连通性，诊断配置问题 |
-| `scripts/oauth_local_server.py` | 本地 OAuth 授权，获取 Access Token |
 | `scripts/mcp_client.py` | MCP JSON-RPC 2.0 客户端封装 |
 | `scripts/rds_text_quoter.py` | RDS 场景二：文本报价入口 |
 | `scripts/rds_text_parser.py` | RDS 文本配置解析器（12 字段提取） |
@@ -74,8 +72,9 @@ cd aliyun-all-in-skill
 
 脚本会交互式引导你完成：
 - Python 虚拟环境安装
-- 参数配置（MCP Endpoint、app_id）
-- 生成配置文件和 OAuth 脚本
+- uv 工具管理器安装
+- 参数配置（MCP Endpoint、AK AccessKey ID/Secret）
+- 生成配置文件
 
 ### 3. 参数获取方式
 
@@ -90,25 +89,15 @@ cd aliyun-all-in-skill
 https://openapi-mcp.<region>.aliyuncs.com/id/<your-id>/mcp
 ```
 
-#### 应用 ID (app_id)
+#### AccessKey (AK) 静态凭证
 
-1. 请管理员账号前往 https://ram.console.aliyun.com/applications
-2. 选择「第三方应用」
-3. 找到并安装「OpenAPI MCP Server」官方应用
-4. 编辑「分配类型」为「全部分配」
-5. 复制「应用 ID」
+1. 请管理员账号前往 https://ram.console.aliyun.com/users
+2. 找到对应的 RAM 用户，进入详情
+3. 在「认证管理」标签页中点击「创建 AccessKey」
+4. 保存 AccessKey ID 和 AccessKey Secret
+5. 为该 RAM 用户授予 `AliyunOpenAPIMCPServerStaticCredentialAccess` 权限策略
 
-### 4. OAuth 授权
-
-`setup.sh` 会生成 `oauth_local_server.py`，你需要：
-
-1. 将脚本输出的 `oauth_local_server.py` 绝对路径对应的文件下载到本地（有浏览器的机器，如 Windows/MacOS）
-2. 在本地操作系统（登录了阿里云管理员账户的电脑）上运行：`python oauth_local_server.py`
-3. 浏览器会自动打开授权页面
-4. 完成授权后，脚本输出 Token JSON
-5. 手动编辑 `config/config.json`，将 `access_token`、`refresh_token`、`expires_at` 填入
-
-### 5. 验证配置
+### 4. 验证配置
 
 ```bash
 ./scripts/mcp_verify.sh
