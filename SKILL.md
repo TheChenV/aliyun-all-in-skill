@@ -230,6 +230,16 @@ venv/bin/python3 scripts/ecs_csv_quoter_auto.py /path/to/file.csv
 2. ...
 ```
 
+**⚠️ 关键规则（必须遵守）：**
+
+| 用户提供的信息 | AI 标准化格式 | 脚本走哪个场景 |
+|--------------|-------------|-------------|
+| 用户明确给了规格代码（如 `ecs.g6.xlarge`） | `实例规格：ecs.g6.xlarge (4 vCPU 8 GiB)` | 场景1（精确匹配） |
+| 用户给了规格族+核数内存（如 `u1，8核32G`） | `规格族：u1 (8 vCPU 32 GiB)` | 场景2（族内匹配） |
+| **用户只给了几核几G**（如 `8核32G`） | **`配置：8 vCPU 32 GiB`** | **场景3（优先级自动匹配）** |
+
+**绝对禁止：用户只给了几核几G时，AI 自行编造规格代码填入 `实例规格：ecs.xxx`！** 这会导致脚本走场景1并校验一致性，AI 填错了就会报价失败。场景3 的自动匹配优先级是 `u1 > u2i > c9i > g9i > r9i`，由脚本根据 `ecs_series.json` 自动匹配。
+
 ### 标准化示例
 
 **用户输入（简写）：**
@@ -240,8 +250,8 @@ venv/bin/python3 scripts/ecs_csv_quoter_auto.py /path/to/file.csv
 
 **AI 标准化后传给脚本：**
 ```
-1. 华东1（杭州） 实例规格：ecs.u1-c1m2.2xlarge (8 vCPU 16 GiB) 镜像：公共免费镜像 系统盘：ESSD PL0 80GiB 公网带宽：按固定带宽 5Mbps
-2. 中国香港 实例规格：ecs.u1-c1m2.xlarge (4 vCPU 8 GiB) 镜像：公共免费镜像 系统盘：ESSD PL0 40GiB 数据盘：ESSD PL0 100GiB 公网带宽：按固定带宽 3Mbps
+1. 华东1（杭州） 配置：8 vCPU 16 GiB 镜像：公共免费镜像 系统盘：ESSD PL0 80GiB 公网带宽：按固定带宽 5Mbps
+2. 中国香港 配置：4 vCPU 8 GiB 镜像：公共免费镜像 系统盘：ESSD PL0 40GiB 数据盘：ESSD PL0 100GiB 公网带宽：按固定带宽 3Mbps
 ```
 
 ### 关键注意事项
