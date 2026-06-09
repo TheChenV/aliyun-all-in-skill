@@ -78,6 +78,11 @@ def parse_disk_type(disk_str: str) -> tuple:
             pl = f'PL{pl_match.group(1)}'
             return f"ESSD 云盘 {pl}", "cloud_essd", pl
         return "ESSD 云盘 PL0", "cloud_essd", "PL0"
+    # 独立 PL 匹配（支持只写 PL0/PL1/PL2/PL3）
+    pl_match = re.search(r'pl\s*(\d)', disk_str_lower)
+    if pl_match:
+        pl = f'PL{pl_match.group(1)}'
+        return f"ESSD 云盘 {pl}", "cloud_essd", pl
     # SSD
     if 'ssd' in disk_str_lower and 'essd' not in disk_str_lower:
         return "SSD 云盘", "cloud_ssd", None
